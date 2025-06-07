@@ -7,6 +7,36 @@ A comprehensive MCP server that provides sophisticated tools for interacting wit
 
 ## Changelog
 
+### v2.2.0 (June 7, 2025)
+
+#### Added
+- **SSE Transport Support**: Added Server-Sent Events transport for real-time streaming capabilities
+- **Multiple Transport Options**: Now supports stdio, HTTP, and SSE transports
+- **Real-time Streaming**: Enhanced `stream_collection_changes` tool with MCP notification system
+- **HTTP Server Mode**: New HTTP server with health check endpoint
+- **Express Integration**: Added Express.js for HTTP/SSE server functionality
+- **Streamable HTTP Protocol**: Support for latest MCP protocol version 2025-03-26
+- **Backward Compatibility**: Maintains support for legacy HTTP+SSE protocol 2024-11-05
+
+#### Updated
+- **MCP SDK**: Updated to latest version 1.12.1
+- **PocketBase SDK**: Updated to latest version 0.26.1
+- **TypeScript Support**: Enhanced type definitions and error handling
+- **Package Scripts**: Added new npm scripts for different server modes
+
+#### Enhanced
+- **Documentation**: Comprehensive README updates with SSE examples
+- **Error Handling**: Improved error messages and type safety
+- **Development Experience**: Better TypeScript integration and debugging
+
+#### Technical Improvements
+- Added Express types for better TypeScript support
+- Enhanced session management for SSE connections
+- Improved transport lifecycle management
+- Better resource cleanup on server shutdown
+
+## Changelog
+
 ### v2.1.0 (April 3, 2025)
 
 #### Added
