@@ -1162,10 +1162,39 @@ class PocketBaseServer {
       },
       async ({ collection }) => {
         try {
-          // Try to get a sample record to infer schema
+          console.error('[MCP DEBUG] get_collection_schema called for collection:', collection);
+          
+          // First try to get collection directly
+          const collectionData = await this.pb.collections.getOne(collection);
+          console.error('[MCP DEBUG] Collection data retrieved:', JSON.stringify(collectionData, null, 2));
+          
+          // In newer PocketBase versions, the schema is in the 'fields' property
+          const schema = collectionData.fields || collectionData.schema || [];
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                name: collection,
+                id: collectionData.id,
+                type: collectionData.type,
+                system: collectionData.system,
+                schema: schema,
+                listRule: collectionData.listRule,
+                viewRule: collectionData.viewRule,
+                createRule: collectionData.createRule,
+                updateRule: collectionData.updateRule,
+                deleteRule: collectionData.deleteRule,
+                indexes: collectionData.indexes || []
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          console.error('[MCP DEBUG] get_collection_schema error:', error);
+          
+          // If we can't get collection directly, try to infer from records
           try {
             const records = await this.pb.collection(collection).getList(1, 1);
-            console.error('[MCP DEBUG] Records for schema inference:', JSON.stringify(records, null, 2));
             
             if (records.items.length > 0) {
               const record = records.items[0];
@@ -1180,8 +1209,6 @@ class PocketBaseServer {
                   options: {}
                 }));
               
-              console.error('[MCP DEBUG] Inferred schema:', JSON.stringify(inferredSchema, null, 2));
-              
               return {
                 content: [{
                   type: 'text',
@@ -1189,7 +1216,7 @@ class PocketBaseServer {
                     name: collection,
                     schema: inferredSchema,
                     inferredSchema: true,
-                    note: "Schema was inferred from record data"
+                    note: "Schema was inferred from record data as collection details were not accessible"
                   }, null, 2)
                 }]
               };
@@ -1200,98 +1227,24 @@ class PocketBaseServer {
                   text: JSON.stringify({
                     name: collection,
                     schema: [],
-                    inferredSchema: true,
-                    note: "No records found to infer schema"
+                    error: "Could not retrieve collection schema and no records found to infer from"
                   }, null, 2)
                 }]
               };
             }
-          } catch (inferError) {
+          } catch (inferError: any) {
             console.error('[MCP DEBUG] Error inferring schema from records:', inferError);
             
-            // If we can't get records, try to get collection info directly
-            try {
-              const collectionData = await this.pb.collections.getOne(collection);
-              console.error('[MCP DEBUG] Collection data:', JSON.stringify(collectionData, null, 2));
-              
-              if (collectionData.schema) {
-                return {
-                  content: [{
-                    type: 'text',
-                    text: JSON.stringify(collectionData, null, 2)
-                  }]
-                };
-              } else {
-                return {
-                  content: [{
-                    type: 'text',
-                    text: JSON.stringify({
-                      name: collection,
-                      schema: [],
-                      note: "Could not infer schema: no records found and no schema in collection data"
-                    }, null, 2)
-                  }]
-                };
-              }
-            } catch (collectionError) {
-              console.error('[MCP DEBUG] Error getting collection data:', collectionError);
-              return {
-                content: [{
-                  type: 'text',
-                  text: JSON.stringify({
-                    name: collection,
-                    schema: [],
-                    error: "Could not get collection data or infer schema from records"
-                  }, null, 2)
-                }]
-              };
-            }
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  name: collection,
+                  error: "Failed to get collection schema: " + (error.message || "Unknown error")
+                }, null, 2)
+              }]
+            };
           }
-        } catch (error: any) {
-          console.error('[MCP DEBUG] get_collection_schema raw error:', error); // Ensure log is present
-          // If direct access fails due to auth, try inferring from a record
-          if (error.status === 403 || error.status === 401 || (error.message && (error.message.includes("authorization") || error.message.includes("permission")))) {
-            try {
-              const records = await this.pb.collection(collection).getList(1, 1, { $autoCancel: false }); // Use different request key potentially
-              if (records.items.length > 0) {
-                const record = records.items[0];
-                // Basic inference logic (might not capture all details like options, required status accurately)
-                const inferredSchema = Object.keys(record)
-                  .filter(key => !['id', 'created', 'updated', 'collectionId', 'collectionName', 'expand'].includes(key)) // Filter out common system fields
-                  .map(field => ({
-                    name: field,
-                    type: typeof record[field] === 'object' ? 'json' : typeof record[field], // Basic type detection
-                    required: false, // Cannot reliably infer required status
-                    system: false, // Assume not system field
-                    options: {} // Cannot infer options
-                  }));
-                return {
-                  content: [{
-                    type: 'text',
-                    text: JSON.stringify(inferredSchema, null, 2) + "\n\nNote: This schema was inferred from record data as direct schema access failed (likely due to permissions). Details like 'required' status or field options might be inaccurate."
-                  }]
-                };
-              } else {
-                 // If no records, we can't infer
-                 return {
-                   content: [{ type: 'text', text: `Failed to get collection schema: ${error.message}. Attempted inference failed as the collection appears empty.` }],
-                   isError: true
-                 };
-              }
-            } catch (inferenceError: any) {
-              console.error('[MCP DEBUG] get_collection_schema inference error:', inferenceError); // Ensure log is present
-              // If inference also fails, return the original error plus inference error
-              return {
-                content: [{ type: 'text', text: `Failed to get collection schema: ${error.message}. Attempted inference also failed: ${inferenceError.message}` }],
-                isError: true
-              };
-            }
-          }
-          // If it's a different error (e.g., collection not found), return that
-          return {
-            content: [{ type: 'text', text: `Failed to get collection schema: ${error.message}` }],
-            isError: true
-          };
         }
       }
     );
@@ -1769,9 +1722,9 @@ class PocketBaseServer {
           for (const id of recordIds) {
             try {
               await this.pb.collection(collection).delete(id);
-              results.push({ id: id, status: 'success' });
+              results.push({ id, status: 'success' });
             } catch (error: any) {
-              errors.push({ id: id, status: 'error', message: error.message });
+              errors.push({ id, status: 'error', message: error.message });
             }
           }
 
@@ -1786,110 +1739,8 @@ class PocketBaseServer {
             content: [{ type: 'text', text: JSON.stringify({ deleted: results }, null, 2) }]
           };
         } catch (error: any) {
-          // Catch potential errors outside the loop
           return {
             content: [{ type: 'text', text: `Failed during batch delete: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Get collection scaffolds tool
-    this.server.tool(
-      'get_collection_scaffolds',
-      {},
-      async () => {
-        try {
-          // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-          const scaffolds = await this.pb.collections.getScaffolds();
-          return {
-            content: [{ type: 'text', text: JSON.stringify(scaffolds, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to get collection scaffolds: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Advanced query collection tool
-    this.server.tool(
-      'query_collection',
-      {
-        collection: z.string().describe('Collection name'),
-        filter: z.string().optional().describe('Filter expression'),
-        sort: z.string().optional().describe('Sort expression'),
-        expand: z.string().optional().describe('Relations to expand'),
-        aggregate: z.record(z.string()).optional().describe('Aggregation settings')
-      },
-      async ({ collection, filter, sort, expand, aggregate }) => {
-        try {
-          const options: any = {};
-          if (filter) options.filter = filter;
-          if (sort) options.sort = sort;
-          if (expand) options.expand = expand;
-          
-          // For aggregation, we need to use a different approach
-          if (aggregate && Object.keys(aggregate).length > 0) {
-            // Convert the aggregate object to PocketBase format
-            for (const [key, value] of Object.entries(aggregate)) {
-              options[key] = value;
-            }
-            
-            // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-            const result = await this.pb.collection(collection).getList(1, 1, options);
-            return {
-              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-            };
-          }
-          
-          // Regular query
-          // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-          const result = await this.pb.collection(collection).getList(1, 50, options);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to query collection: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Authentication with OTP tool
-    this.server.tool(
-      'authenticate_with_otp_code',
-      {
-        email: z.string().describe('User email'),
-        otpCode: z.string().describe('OTP code received via email'),
-        collection: z.string().optional().default('users').describe('Collection name')
-      },
-      async ({ email, otpCode, collection }) => {
-        try {
-          // First, request an OTP for the user
-          // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-          const result = await this.pb.collection(collection).authWithOtp(email);
-          
-          // Then authenticate with the provided code
-          // Note: This is a simplified implementation as the actual flow might be different
-          // depending on the PocketBase version and configuration
-          return {
-            content: [{ 
-              type: 'text', 
-              text: JSON.stringify({
-                success: true,
-                result
-              }, null, 2) 
-            }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `OTP authentication failed: ${error.message}` }],
             isError: true
           };
         }
