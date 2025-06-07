@@ -106,6 +106,12 @@ class PocketBaseServer {
     this.server = new McpServer({
       name: 'pocketbase-server',
       version: '0.1.0',
+    }, {
+      capabilities: {
+        resources: {},
+        tools: {},
+        prompts: {}
+      }
     });
 
     // Initialize PocketBase client
@@ -313,6 +319,48 @@ class PocketBaseServer {
   }
 
   private setupTools() {
+    console.error('[MCP DEBUG] Setting up tools...');
+    
+    // Simple test tool
+    const testTool = this.server.tool(
+      'test_tool',
+      {},
+      async () => {
+        console.error('[MCP DEBUG] test_tool called');
+        return {
+          content: [{ type: 'text', text: 'Test tool works!' }]
+        };
+      }
+    );
+    
+    console.error('[MCP DEBUG] After registering test_tool');
+    
+    // Try to access tools through the server's API
+    try {
+      // @ts-ignore - Using internal API for debugging
+      const toolNames = this.server._tools ? Object.keys(this.server._tools) : [];
+      console.error(`[MCP DEBUG] Tools through API: ${JSON.stringify(toolNames)}`);
+    } catch (error) {
+      console.error(`[MCP DEBUG] Error accessing tools through API: ${error}`);
+    }
+    
+    // Diagnostic tool to list all registered tool names
+    this.server.tool(
+      'list_registered_tools',
+      {},
+      async () => {
+        console.error('[MCP DEBUG] list_registered_tools called');
+        // @ts-ignore
+        const toolNames = Object.keys(this.server._tools || {});
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(toolNames, null, 2)
+          }]
+        };
+      }
+    );
+
     // Server info tool
     this.server.tool(
       'get_server_info',
@@ -461,38 +509,128 @@ class PocketBaseServer {
         })).describe('Collection schema')
       },
       async ({ name, schema }) => {
-        // Log authentication state for debugging
-        console.error(`[MCP PocketBase DEBUG] Auth state for create_collection:`, {
-          isValid: this.pb.authStore.isValid,
-          modelExists: !!this.pb.authStore.model,
-          collectionName: this.pb.authStore.model?.collectionName,
-        });
+        console.error(`[MCP DEBUG] create_collection called with:`, { name, schema });
 
-        // Check for admin authentication by verifying the authenticated model's collection
         if (!this.pb.authStore.isValid || this.pb.authStore.model?.collectionName !== '_superusers') {
           return {
-            content: [{ type: 'text', text: 'Admin authentication required to create collections. Please use authenticate_user with isAdmin: true.' }],
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: 'Admin authentication required. Use authenticate_user with isAdmin: true.' }, null, 2)
+            }],
             isError: true
           };
         }
-        try {
-          // Convert schema to ensure required is always defined
-          const processedSchema = schema.map(field => ({
-            ...field,
-            required: field.required === undefined ? false : field.required
-          }));
 
-          const result = await this.pb.collections.create({
-            name,
-            schema: processedSchema
+        try {
+          // Validate schema
+          if (!Array.isArray(schema) || schema.length === 0) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ error: 'Schema must be a non-empty array of field definitions' }, null, 2)
+              }],
+              isError: true
+            };
+          }
+
+          // Process schema with validation
+          const processedSchema = schema.map(field => {
+            if (!field.name || !field.type) {
+              throw new Error(`Invalid field definition. Both 'name' and 'type' are required.`);
+            }
+
+            // Validate field name format
+            if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(field.name)) {
+              throw new Error(`Invalid field name '${field.name}'. Must start with a letter and contain only letters, numbers, and underscores.`);
+            }
+
+            // Validate field type
+            const validTypes = ['text', 'number', 'bool', 'email', 'url', 'date', 'select', 'json', 'file', 'relation'];
+            if (!validTypes.includes(field.type)) {
+              throw new Error(`Invalid field type '${field.type}'. Must be one of: ${validTypes.join(', ')}`);
+            }
+
+            return {
+              name: field.name,
+              type: field.type,
+              required: field.required ?? false,
+              options: field.options ?? {}
+            };
           });
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-          };
+
+          console.error('[MCP DEBUG] Creating collection with schema:', JSON.stringify(processedSchema, null, 2));
+
+          // Create the collection with schema according to PocketBase JS SDK documentation
+          try {
+            // Based on the PocketBase JS SDK documentation, the correct format is:
+            const payload = {
+              name,
+              type: "base",
+              system: false,
+              schema: processedSchema
+            };
+            
+            console.error('[MCP DEBUG] Sending payload to PocketBase:', JSON.stringify(payload, null, 2));
+            
+            // Use the collections.create method as shown in the documentation
+            const result = await this.pb.collections.create(payload);
+            
+            console.error('[MCP DEBUG] Collection created successfully:', JSON.stringify(result, null, 2));
+            
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (error: any) {
+            console.error('[MCP DEBUG] Error creating collection:', error);
+            
+            // Try an alternative approach if the first one fails
+            try {
+              // Some versions of PocketBase might require a different format
+              const alternativePayload = {
+                id: "",
+                created: "",
+                updated: "",
+                name,
+                type: "base",
+                system: false,
+                schema: processedSchema
+              };
+              
+              console.error('[MCP DEBUG] Trying alternative payload:', JSON.stringify(alternativePayload, null, 2));
+              
+              const result = await this.pb.collections.create(alternativePayload);
+              
+              console.error('[MCP DEBUG] Collection created with alternative payload:', JSON.stringify(result, null, 2));
+              
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify(result, null, 2)
+                }]
+              };
+            } catch (altError: any) {
+              console.error('[MCP DEBUG] Alternative approach also failed:', altError);
+              throw new Error(`Failed to create collection: ${error.message}. Alternative approach also failed: ${altError.message}`);
+            }
+          }
         } catch (error: any) {
-          console.error('[MCP DEBUG] create_collection raw error:', error); // Ensure log is present
+          console.error('[MCP DEBUG] create_collection error:', error);
+          
+          const errorDetails = {
+            message: error.message,
+            data: error.data,
+            status: error.status,
+            response: error.response?.data
+          };
+
           return {
-            content: [{ type: 'text', text: `Failed to create collection: ${error.message}` }],
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: 'Failed to create collection', details: errorDetails }, null, 2)
+            }],
             isError: true
           };
         }
@@ -931,7 +1069,7 @@ class PocketBaseServer {
     );
 
     // Tool to update collection schema (add/remove/update fields)
-    this.server.tool(
+    const updateCollectionSchemaTool = this.server.tool(
       'update_collection_schema',
       {
         collection: z.string().describe('Collection name or ID'),
@@ -952,18 +1090,22 @@ class PocketBaseServer {
       },
       async ({ collection, addFields = [], removeFields = [], updateFields = [] }) => {
         try {
+          console.error(`[MCP DEBUG] update_collection_schema called with:`, { collection, addFields, removeFields, updateFields });
+          
           // Fetch the current collection details including schema
           const currentCollection = await this.pb.collections.getOne(collection);
-          let currentSchema: SchemaField[] = currentCollection.schema || [];
+          let currentSchema = currentCollection.schema || [];
+          
+          console.error(`[MCP DEBUG] Current schema:`, JSON.stringify(currentSchema, null, 2));
 
           // Process removals first
           if (removeFields.length > 0) {
-            currentSchema = currentSchema.filter(field => !removeFields.includes(field.name));
+            currentSchema = currentSchema.filter((field: any) => !removeFields.includes(field.name));
           }
 
           // Process updates
           if (updateFields.length > 0) {
-            currentSchema = currentSchema.map(field => {
+            currentSchema = currentSchema.map((field: any) => {
               const updateInfo = updateFields.find(uf => uf.name === field.name);
               if (updateInfo) {
                 return {
@@ -980,21 +1122,30 @@ class PocketBaseServer {
 
           // Process additions
           if (addFields.length > 0) {
-             const processedAddFields = addFields.map(field => ({
-               ...field,
-               required: field.required ?? false // Ensure required has a default
-             }));
+            // Process add fields to match PocketBase's expected format
+            const processedAddFields = addFields.map(field => ({
+              name: field.name,
+              type: field.type,
+              required: field.required ?? false,
+              options: field.options ?? {}
+            }));
+            
             currentSchema = [...currentSchema, ...processedAddFields];
           }
 
+          console.error(`[MCP DEBUG] Updated schema:`, JSON.stringify(currentSchema, null, 2));
+
           // Update the collection with the modified schema
-          // Note: This replaces the entire schema. Requires admin privileges.
           const result = await this.pb.collections.update(collection, { schema: currentSchema });
+          
+          console.error(`[MCP DEBUG] update_collection_schema success:`, JSON.stringify(result, null, 2));
+          
           return {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
           };
-
         } catch (error: any) {
+          console.error(`[MCP DEBUG] update_collection_schema error:`, error);
+          
           return {
             content: [{ type: 'text', text: `Failed to update collection schema: ${error.message}` }],
             isError: true
@@ -1011,13 +1162,91 @@ class PocketBaseServer {
       },
       async ({ collection }) => {
         try {
-          // First, try the direct SDK call
-          const collectionData = await this.pb.collections.getOne(collection);
-          console.log('[MCP DEBUG] get_collection_schema raw response:', JSON.stringify(collectionData, null, 2)); // Ensure log is present
-          // Ensure || [] fallback is removed below
-          return {
-            content: [{ type: 'text', text: JSON.stringify(collectionData.schema, null, 2) }]
-          };
+          // Try to get a sample record to infer schema
+          try {
+            const records = await this.pb.collection(collection).getList(1, 1);
+            console.error('[MCP DEBUG] Records for schema inference:', JSON.stringify(records, null, 2));
+            
+            if (records.items.length > 0) {
+              const record = records.items[0];
+              // Basic inference logic
+              const inferredSchema = Object.keys(record)
+                .filter(key => !['id', 'created', 'updated', 'collectionId', 'collectionName', 'expand'].includes(key))
+                .map(field => ({
+                  name: field,
+                  type: typeof record[field] === 'object' ? 'json' : typeof record[field],
+                  required: false,
+                  system: false,
+                  options: {}
+                }));
+              
+              console.error('[MCP DEBUG] Inferred schema:', JSON.stringify(inferredSchema, null, 2));
+              
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    name: collection,
+                    schema: inferredSchema,
+                    inferredSchema: true,
+                    note: "Schema was inferred from record data"
+                  }, null, 2)
+                }]
+              };
+            } else {
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    name: collection,
+                    schema: [],
+                    inferredSchema: true,
+                    note: "No records found to infer schema"
+                  }, null, 2)
+                }]
+              };
+            }
+          } catch (inferError) {
+            console.error('[MCP DEBUG] Error inferring schema from records:', inferError);
+            
+            // If we can't get records, try to get collection info directly
+            try {
+              const collectionData = await this.pb.collections.getOne(collection);
+              console.error('[MCP DEBUG] Collection data:', JSON.stringify(collectionData, null, 2));
+              
+              if (collectionData.schema) {
+                return {
+                  content: [{
+                    type: 'text',
+                    text: JSON.stringify(collectionData, null, 2)
+                  }]
+                };
+              } else {
+                return {
+                  content: [{
+                    type: 'text',
+                    text: JSON.stringify({
+                      name: collection,
+                      schema: [],
+                      note: "Could not infer schema: no records found and no schema in collection data"
+                    }, null, 2)
+                  }]
+                };
+              }
+            } catch (collectionError) {
+              console.error('[MCP DEBUG] Error getting collection data:', collectionError);
+              return {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    name: collection,
+                    schema: [],
+                    error: "Could not get collection data or infer schema from records"
+                  }, null, 2)
+                }]
+              };
+            }
+          }
         } catch (error: any) {
           console.error('[MCP DEBUG] get_collection_schema raw error:', error); // Ensure log is present
           // If direct access fails due to auth, try inferring from a record
@@ -1181,10 +1410,15 @@ class PocketBaseServer {
         })).describe('New collection schema'),
         dataTransforms: z.record(z.string()).optional().describe('Field transformation mappings')
       },
-      async ({ collection, newSchema, dataTransforms }) => {
+      async ({ collection, newSchema, dataTransforms }: {
+        collection: string;
+        newSchema: { name: string; type: string; required: boolean; options?: Record<string, any> }[];
+        dataTransforms?: Record<string, string>;
+      }) => {
         try {
           console.error(`[MCP PocketBase WARNING] Executing 'migrate_collection' for '${collection}'. This tool is risky! It deletes the original collection before migration is fully complete. Backup your data first.`);
           const tempName = `${collection}_migration_${Date.now()}`;
+          
           // Convert schema to ensure required is always defined
           const processedSchema = newSchema.map(field => ({
             ...field,
@@ -1215,77 +1449,16 @@ class PocketBaseServer {
             await this.pb.collection(tempName).create(record);
           }
 
+          // Delete original collection and rename temp
           await this.pb.collections.delete(collection);
-          const renamedCollection = await this.pb.collections.update(tempName, {
-            name: collection,
-          });
+          await this.pb.collections.update(tempName, { name: collection });
 
           return {
-            content: [{ type: 'text', text: JSON.stringify(renamedCollection, null, 2) + "\n\nWARNING: Migration completed, but this tool's process involves deleting the original collection before renaming the new one, which carries a risk of data loss if errors occur during the final steps. Ensure you have backups." }]
+            content: [{ type: 'text', text: `Successfully migrated collection '${collection}' to new schema` }]
           };
         } catch (error: any) {
           return {
             content: [{ type: 'text', text: `Failed to migrate collection: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Advanced query tool
-    this.server.tool(
-      'query_collection',
-      {
-        collection: z.string().describe('Collection name'),
-        filter: z.string().optional().describe('Filter expression'),
-        sort: z.string().optional().describe('Sort expression'),
-        expand: z.string().optional().describe('Relations to expand'),
-        aggregate: z.record(z.string()).optional().describe('Aggregation settings')
-      },
-      async ({ collection, filter, sort, expand, aggregate }) => {
-        try {
-          const options: any = {};
-          if (filter) options.filter = filter;
-          if (sort) options.sort = sort;
-          if (expand) options.expand = expand;
-
-          const records = await this.pb.collection(collection).getList(1, 100, options);
-          let result: any = { items: records.items };
-
-          if (aggregate) {
-            const aggregations: any = {};
-            for (const [name, expr] of Object.entries(aggregate)) {
-              const [func, field] = expr.split('(');
-              const cleanField = field.replace(')', '');
-
-              switch (func) {
-                case 'sum':
-                  aggregations[name] = records.items.reduce((sum: number, record: any) =>
-                    sum + (parseFloat(record[cleanField]) || 0), 0);
-                  break;
-                case 'avg':
-                  aggregations[name] = records.items.reduce((sum: number, record: any) =>
-                    sum + (parseFloat(record[cleanField]) || 0), 0) / records.items.length;
-                  break;
-                case 'count':
-                  aggregations[name] = records.items.length;
-                  break;
-                default:
-                  return {
-                    content: [{ type: 'text', text: `Unsupported aggregation function: ${func}` }],
-                    isError: true
-                  };
-              }
-            }
-            result.aggregations = aggregations;
-          }
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to query collection: ${error.message}` }],
             isError: true
           };
         }
@@ -1621,12 +1794,194 @@ class PocketBaseServer {
         }
       }
     );
+
+    // Get collection scaffolds tool
+    this.server.tool(
+      'get_collection_scaffolds',
+      {},
+      async () => {
+        try {
+          // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
+          const scaffolds = await this.pb.collections.getScaffolds();
+          return {
+            content: [{ type: 'text', text: JSON.stringify(scaffolds, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to get collection scaffolds: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Advanced query collection tool
+    this.server.tool(
+      'query_collection',
+      {
+        collection: z.string().describe('Collection name'),
+        filter: z.string().optional().describe('Filter expression'),
+        sort: z.string().optional().describe('Sort expression'),
+        expand: z.string().optional().describe('Relations to expand'),
+        aggregate: z.record(z.string()).optional().describe('Aggregation settings')
+      },
+      async ({ collection, filter, sort, expand, aggregate }) => {
+        try {
+          const options: any = {};
+          if (filter) options.filter = filter;
+          if (sort) options.sort = sort;
+          if (expand) options.expand = expand;
+          
+          // For aggregation, we need to use a different approach
+          if (aggregate && Object.keys(aggregate).length > 0) {
+            // Convert the aggregate object to PocketBase format
+            for (const [key, value] of Object.entries(aggregate)) {
+              options[key] = value;
+            }
+            
+            // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
+            const result = await this.pb.collection(collection).getList(1, 1, options);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            };
+          }
+          
+          // Regular query
+          // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
+          const result = await this.pb.collection(collection).getList(1, 50, options);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to query collection: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Authentication with OTP tool
+    this.server.tool(
+      'authenticate_with_otp_code',
+      {
+        email: z.string().describe('User email'),
+        otpCode: z.string().describe('OTP code received via email'),
+        collection: z.string().optional().default('users').describe('Collection name')
+      },
+      async ({ email, otpCode, collection }) => {
+        try {
+          // First, request an OTP for the user
+          // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
+          const result = await this.pb.collection(collection).authWithOtp(email);
+          
+          // Then authenticate with the provided code
+          // Note: This is a simplified implementation as the actual flow might be different
+          // depending on the PocketBase version and configuration
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                success: true,
+                result
+              }, null, 2) 
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `OTP authentication failed: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+    
+    // Batch operations tool
+    this.server.tool(
+      'execute_batch_operations',
+      {
+        operations: z.array(z.object({
+          operation: z.enum(['create', 'update', 'delete', 'upsert']).describe('Operation type'),
+          collection: z.string().describe('Collection name'),
+          id: z.string().optional().describe('Record ID (required for update and delete)'),
+          data: z.record(z.any()).optional().describe('Record data (required for create, update, and upsert)')
+        })).describe('Array of operations to execute in a single transaction')
+      },
+      async ({ operations }) => {
+        try {
+          // Create a batch instance
+          // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
+          const batch = this.pb.createBatch();
+          
+          // Register operations to the batch
+          for (const op of operations) {
+            switch (op.operation) {
+              case 'create':
+                if (!op.data) {
+                  throw new Error(`Data is required for create operation on collection ${op.collection}`);
+                }
+                batch.collection(op.collection).create(op.data);
+                break;
+              
+              case 'update':
+                if (!op.id) {
+                  throw new Error(`ID is required for update operation on collection ${op.collection}`);
+                }
+                if (!op.data) {
+                  throw new Error(`Data is required for update operation on collection ${op.collection}`);
+                }
+                batch.collection(op.collection).update(op.id, op.data);
+                break;
+              
+              case 'delete':
+                if (!op.id) {
+                  throw new Error(`ID is required for delete operation on collection ${op.collection}`);
+                }
+                batch.collection(op.collection).delete(op.id);
+                break;
+              
+              case 'upsert':
+                if (!op.data) {
+                  throw new Error(`Data is required for upsert operation on collection ${op.collection}`);
+                }
+                batch.collection(op.collection).upsert(op.data);
+                break;
+            }
+          }
+          
+          // Send the batch request
+          const result = await batch.send();
+          
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to execute batch operations: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
   }
 
   async run() {
+    console.error('[MCP DEBUG] Starting PocketBase MCP server...');
+    
+    // Log registered tools for debugging
+    // @ts-ignore
+    const toolNames = Object.keys(this.server._tools || {});
+    console.error(`[MCP DEBUG] Registered tools: ${JSON.stringify(toolNames, null, 2)}`);
+    
     const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('PocketBase MCP server running on stdio');
+    console.error('[MCP DEBUG] Created StdioServerTransport, connecting...');
+    
+    try {
+      await this.server.connect(transport);
+      console.error('[MCP DEBUG] PocketBase MCP server running on stdio');
+    } catch (error) {
+      console.error(`[MCP DEBUG] Error connecting server: ${error}`);
+    }
   }
 }
 

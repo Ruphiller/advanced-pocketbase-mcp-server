@@ -8,7 +8,7 @@
     "dev": "tsc -w"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.8.0",
+    "@modelcontextprotocol/sdk": "^1.11.0",
     "@types/eventsource": "^1.1.15",
     "dotenv": "^16.4.7",
     "eventsource": "^3.0.6",
