@@ -10,7 +10,7 @@
     "start:sse": "node build/server.js --sse --port=3000",
     "dev": "tsc -w"
   },  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "@types/eventsource": "^1.1.15",
     "dotenv": "^16.4.7",
     "eventsource": "^3.0.6",
