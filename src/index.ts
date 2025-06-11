@@ -3634,7 +3634,7 @@ class PocketBaseServer {
       }
     );
 
-    // === ADDITIONAL AUTOMATION TOOLS ===
+    // === AUTOMATION TOOLS ===
     // Note: These tools provide advanced automation capabilities
 
     // Enhanced email sending tool (replacement for old send_email)
@@ -4646,21 +4646,22 @@ class PocketBaseServer {
   async run() {
     console.error('[MCP DEBUG] Starting PocketBase MCP server...');
     
-    // Log registered tools for debugging
     // @ts-ignore
     const toolNames = Object.keys(this.server._tools || {});
-    console.error(`[MCP DEBUG] Registered tools: ${JSON.stringify(toolNames, null, 2)}`);
+    console.error(`[MCP DEBUG] Registered tools: ${JSON.stringify(toolNames)}`);
     
     const transport = new StdioServerTransport();
-    console.error('[MCP DEBUG] Created StdioServerTransport, connecting...');
     
     try {
+      console.error('[MCP DEBUG] Created StdioServerTransport, connecting...');
       await this.server.connect(transport);
       console.error('[MCP DEBUG] PocketBase MCP server running on stdio');
     } catch (error) {
       console.error(`[MCP DEBUG] Error connecting server: ${error}`);
     }
   }
+
+  // Run as HTTP server
   async runHttp(port: number = 3000) {
     console.error(`[MCP DEBUG] Starting PocketBase MCP HTTP server on port ${port}...`);
     
@@ -4745,6 +4746,10 @@ MCP Endpoint: http://localhost:${port}/mcp
 
 // Create and run server
 const server = new PocketBaseServer();
+
+// Export the class for testing
+export default PocketBaseServer;
+export { PocketBaseServer };
 
 // Check if we should run in HTTP mode (for Smithery container deployment)
 if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
