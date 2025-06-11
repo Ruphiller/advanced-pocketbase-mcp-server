@@ -55,30 +55,7 @@ interface RequestHandlerExtra {
   [key: string]: any;
 }
 
-// Extend PocketBase types
-interface ExtendedPocketBase extends PocketBase {
-  baseUrl: string;
-  authStore: {
-    isValid: boolean;
-    token: string;
-    model: any;
-    save(token: string, model: any): void;
-    clear(): void;
-    exportToCookie(options?: any): string;
-    loadFromCookie(cookie: string): void;
-  };
-  admins: any;
-  collections: {
-    getList(page?: number, perPage?: number, options?: any): Promise<any>;
-    getOne(id: string): Promise<any>;
-    create(data: any): Promise<any>;
-    update(id: string, data: any): Promise<any>;
-    delete(id: string): Promise<any>;
-  };
-  filter(expr: string, params: Record<string, any>): string;
-  autoCancellation(enable: boolean): void;
-  cancelRequest(key: string): void;
-}
+// Using the standard PocketBase type from our updated type definitions
 
 // Schema field type
 interface SchemaField {
@@ -103,7 +80,7 @@ interface SubscriptionEvent {
 }
 
 export class PocketBaseServer {
-  private pb: ExtendedPocketBase;
+  private pb: PocketBase;
   private _customHeaders: Record<string, string> = {};
 
   constructor() {
@@ -112,7 +89,7 @@ export class PocketBaseServer {
     if (!url) {
       throw new Error('POCKETBASE_URL environment variable is required');
     }
-    this.pb = new PocketBase(url) as unknown as ExtendedPocketBase;
+    this.pb = new PocketBase(url);
   }
 
   // Create and configure the MCP server
@@ -247,13 +224,12 @@ export class PocketBaseServer {
       "pocketbase://auth",
       async (uri) => {
         try {
-          return {
-            contents: [{
+          return {            contents: [{
               uri: uri.href,
               text: JSON.stringify({
                 isValid: this.pb.authStore.isValid,
                 token: this.pb.authStore.token,
-                model: this.pb.authStore.model
+                record: this.pb.authStore.record
               }, null, 2)
             }]
           };
@@ -301,11 +277,10 @@ export class PocketBaseServer {
           return {
             content: [{
               type: 'text',
-              text: JSON.stringify({
-                isValid: this.pb.authStore.isValid,
+              text: JSON.stringify({                isValid: this.pb.authStore.isValid,
                 token: this.pb.authStore.token,
-                model: this.pb.authStore.model,
-                isAdmin: this.pb.authStore.model?.collectionName === '_superusers'
+                model: this.pb.authStore.record,
+                isAdmin: this.pb.authStore.record?.collectionName === '_superusers'
               }, null, 2)
             }]
           };
