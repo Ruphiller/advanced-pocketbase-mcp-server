@@ -7,6 +7,48 @@ A comprehensive MCP server that provides sophisticated tools for interacting wit
 
 ## Changelog
 
+### v3.0.0 (June 10, 2025)
+
+#### Added - Complete Full-Stack SaaS Backend Integration
+- **Email Service Integration**: Complete email functionality with SMTP and SendGrid support
+  - 10 comprehensive email MCP tools: create/update/delete templates, send templated/custom emails
+  - Email logging and template management system
+  - Connection testing and default template setup
+- **Enhanced Stripe Service**: Advanced payment processing capabilities
+  - 10 additional Stripe MCP tools for complete payment management
+  - Payment intent creation, customer management, subscription handling
+  - Full webhook processing and product synchronization
+- **Full-Stack SaaS Automation**: 5 complete workflow automation tools
+  - `register_user_with_automation`: Complete user registration with email and Stripe customer creation
+  - `create_subscription_flow`: End-to-end subscription setup with email notifications
+  - `process_payment_webhook_with_email`: Webhook processing with automated email notifications
+  - `setup_complete_saas_backend`: One-click SaaS backend initialization
+  - `cancel_subscription_with_email`: Subscription cancellation with customer notifications
+- **Production-Ready Monitoring**: Backend status monitoring and health checks
+  - `get_saas_backend_status`: Comprehensive status reporting for production readiness
+  - Service health checks, collection validation, template verification
+  - Production readiness assessment and recommendations
+
+#### Enhanced Services
+- **EmailService**: Added `updateTemplate()` and `testConnection()` methods
+- **StripeService**: Added `createPaymentIntent()`, `retrieveCustomer()`, `updateCustomer()`, `cancelSubscription()` methods
+- **Advanced Collections**: Automated setup for `stripe_products`, `stripe_customers`, `stripe_subscriptions`, `stripe_payments`, `email_templates`, `email_logs`
+
+#### Fixed
+- **TypeScript Syntax Errors**: Resolved all compilation errors in index.ts
+- **Import Statements**: Fixed malformed import in email.ts service
+- **Tool Registration**: Corrected MCP tool registration syntax and structure
+
+#### Technical Improvements
+- Complete type safety across all new services and tools
+- Comprehensive error handling for all email and payment operations
+- Modular service architecture with proper separation of concerns
+- Environment-based configuration for all external services
+
+This release transforms the Advanced PocketBase MCP Server into a complete full-stack SaaS backend solution, providing everything needed for user management, payment processing, email communications, and business automation through the Model Context Protocol.
+
+## Changelog
+
 ### v2.2.0 (June 7, 2025)
 
 #### Added

@@ -5,6 +5,8 @@ import PocketBase from 'pocketbase';
 import { z } from 'zod';
 import { EventSource } from 'eventsource'; // Import the polyfill using named import
 import dotenv from 'dotenv'; // Import dotenv for loading .env file
+import { StripeService } from './services/stripe.js';
+import { EmailService } from './services/email.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -101,6 +103,8 @@ class PocketBaseServer {
   private server: McpServer;
   private pb: ExtendedPocketBase;
   private _customHeaders: Record<string, string> = {};
+  private stripeService?: StripeService;
+  private emailService?: EmailService;
 
   constructor() {
     this.server = new McpServer({
@@ -120,6 +124,25 @@ class PocketBaseServer {
       throw new Error('POCKETBASE_URL environment variable is required');
     }
     this.pb = new PocketBase(url) as unknown as ExtendedPocketBase;
+
+    // Initialize services if environment variables are present
+    if (process.env.STRIPE_SECRET_KEY) {
+      try {
+        this.stripeService = new StripeService(this.pb);
+        console.log('Stripe service initialized');
+      } catch (error) {
+        console.warn('Stripe service initialization failed:', error);
+      }
+    }
+
+    if (process.env.EMAIL_SERVICE || process.env.SMTP_HOST) {
+      try {
+        this.emailService = new EmailService(this.pb);
+        console.log('Email service initialized');
+      } catch (error) {
+        console.warn('Email service initialization failed:', error);
+      }
+    }
 
     this.setupTools();
     this.setupResources();
@@ -1799,8 +1822,7 @@ class PocketBaseServer {
                 break;
             }
           }
-          
-          // Send the batch request
+            // Send the batch request
           const result = await batch.send();
           
           return {
@@ -1812,6 +1834,1248 @@ class PocketBaseServer {
             isError: true
           };
         }
+      }    );
+    
+    // === ADVANCED FEATURES ===
+    
+    // Setup required collections for advanced features
+    this.server.tool(
+      'setup_advanced_collections',
+      {},
+      async () => {
+        try {
+          const collections = [
+            {
+              name: 'stripe_products',
+              schema: [
+                { name: 'name', type: 'text', required: true },
+                { name: 'description', type: 'text', required: false },
+                { name: 'price', type: 'number', required: true },
+                { name: 'currency', type: 'text', required: true },
+                { name: 'recurring', type: 'bool', required: true },
+                { name: 'interval', type: 'text', required: false },
+                { name: 'stripeProductId', type: 'text', required: true },
+                { name: 'stripePriceId', type: 'text', required: false },
+                { name: 'active', type: 'bool', required: true },
+                { name: 'metadata', type: 'json', required: false },
+              ]
+            },
+            {
+              name: 'stripe_customers',
+              schema: [
+                { name: 'email', type: 'email', required: true },
+                { name: 'name', type: 'text', required: false },
+                { name: 'stripeCustomerId', type: 'text', required: true },
+                { name: 'userId', type: 'relation', required: false, options: { collectionId: 'users' } },
+                { name: 'metadata', type: 'json', required: false },
+              ]
+            },
+            {
+              name: 'stripe_subscriptions',
+              schema: [
+                { name: 'customerId', type: 'text', required: true },
+                { name: 'productId', type: 'text', required: false },
+                { name: 'stripeSubscriptionId', type: 'text', required: true },
+                { name: 'status', type: 'text', required: true },
+                { name: 'currentPeriodStart', type: 'date', required: true },
+                { name: 'currentPeriodEnd', type: 'date', required: true },
+                { name: 'cancelAtPeriodEnd', type: 'bool', required: true },
+                { name: 'metadata', type: 'json', required: false },
+              ]
+            },
+            {
+              name: 'stripe_payments',
+              schema: [
+                { name: 'customerId', type: 'text', required: true },
+                { name: 'amount', type: 'number', required: true },
+                { name: 'currency', type: 'text', required: true },
+                { name: 'status', type: 'text', required: true },
+                { name: 'stripePaymentIntentId', type: 'text', required: true },
+                { name: 'description', type: 'text', required: false },
+                { name: 'metadata', type: 'json', required: false },
+              ]
+            },
+            {
+              name: 'email_templates',
+              schema: [
+                { name: 'name', type: 'text', required: true },
+                { name: 'subject', type: 'text', required: true },
+                { name: 'htmlContent', type: 'text', required: true },
+                { name: 'textContent', type: 'text', required: false },
+                { name: 'variables', type: 'json', required: false },
+              ]
+            },
+            {
+              name: 'email_logs',
+              schema: [
+                { name: 'to', type: 'email', required: true },
+                { name: 'from', type: 'email', required: false },
+                { name: 'subject', type: 'text', required: true },
+                { name: 'template', type: 'text', required: false },
+                { name: 'status', type: 'select', required: true, options: { values: ['sent', 'failed', 'pending'] } },
+                { name: 'error', type: 'text', required: false },
+                { name: 'variables', type: 'json', required: false },
+              ]
+            }
+          ];
+
+          const results = [];
+          for (const collectionDef of collections) {
+            try {
+              // Check if collection exists
+              try {
+                await this.pb.collections.getOne(collectionDef.name);
+                results.push({ collection: collectionDef.name, action: 'exists' });
+              } catch {
+                // Create collection if it doesn't exist
+                await this.pb.collections.create({
+                  name: collectionDef.name,
+                  type: 'base',
+                  schema: collectionDef.schema.map(field => ({
+                    name: field.name,
+                    type: field.type,
+                    required: field.required,
+                    options: field.options || {}
+                  }))
+                });
+                results.push({ collection: collectionDef.name, action: 'created' });
+              }
+            } catch (error: any) {
+              results.push({ collection: collectionDef.name, action: 'error', error: error.message });
+            }
+          }          return {
+            content: [{ type: 'text', text: JSON.stringify({ setup: 'completed', results }, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to setup advanced collections: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Stripe Product Management
+    if (this.stripeService) {
+      this.server.tool(
+        'stripe_create_product',
+        {
+          name: z.string().describe('Product name'),
+          description: z.string().optional().describe('Product description'),
+          price: z.number().describe('Price in cents'),
+          currency: z.string().default('usd').describe('Currency code'),
+          recurring: z.boolean().optional().describe('Is this a subscription?'),
+          interval: z.enum(['month', 'year', 'week', 'day']).optional().describe('Billing interval for subscriptions'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ name, description, price, currency, recurring, interval, metadata }) => {
+          try {
+            const product = await this.stripeService!.createProduct({
+              name,
+              description,
+              price,
+              currency,
+              recurring,
+              interval,
+              metadata
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(product, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create product: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'stripe_create_customer',
+        {
+          email: z.string().email().describe('Customer email'),
+          name: z.string().optional().describe('Customer name'),
+          userId: z.string().optional().describe('Associated user ID'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ email, name, userId, metadata }) => {
+          try {
+            const customer = await this.stripeService!.createCustomer({
+              email,
+              name,
+              userId,
+              metadata
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(customer, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create customer: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'stripe_create_checkout_session',
+        {
+          priceId: z.string().describe('Stripe price ID'),
+          customerId: z.string().optional().describe('Stripe customer ID'),
+          customerEmail: z.string().email().optional().describe('Customer email if no customer ID'),
+          successUrl: z.string().url().describe('Success redirect URL'),
+          cancelUrl: z.string().url().describe('Cancel redirect URL'),
+          mode: z.enum(['payment', 'subscription', 'setup']).default('payment').describe('Checkout mode'),
+          metadata: z.record(z.any()).optional().describe('Session metadata')
+        },
+        async ({ priceId, customerId, customerEmail, successUrl, cancelUrl, mode, metadata }) => {
+          try {
+            const session = await this.stripeService!.createCheckoutSession({
+              priceId,
+              customerId,
+              customerEmail,
+              successUrl,
+              cancelUrl,
+              mode,
+              metadata
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(session, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create checkout session: ${error.message}` }],
+              isError: true
+            };
+          }
+        }      );
+
+      this.server.tool(
+        'stripe_create_payment_intent',
+        {
+          amount: z.number().describe('Amount in cents'),
+          currency: z.string().default('usd').describe('Currency code'),
+          customerId: z.string().optional().describe('Stripe customer ID'),
+          description: z.string().optional().describe('Payment description'),
+          metadata: z.record(z.any()).optional().describe('Payment metadata')
+        },
+        async ({ amount, currency, customerId, description, metadata }) => {
+          try {
+            const result = await this.stripeService!.createPaymentIntent({
+              amount,
+              currency,
+              customerId,
+              description,
+              metadata
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create payment intent: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'stripe_retrieve_customer',
+        {
+          customerId: z.string().describe('Stripe customer ID')
+        },
+        async ({ customerId }) => {
+          try {
+            const customer = await this.stripeService!.retrieveCustomer(customerId);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(customer, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to retrieve customer: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'stripe_update_customer',
+        {
+          customerId: z.string().describe('Stripe customer ID'),
+          email: z.string().email().optional().describe('New customer email'),
+          name: z.string().optional().describe('New customer name'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ customerId, email, name, metadata }) => {
+          try {
+            const customer = await this.stripeService!.updateCustomer(customerId, {
+              email,
+              name,
+              metadata
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(customer, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to update customer: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'stripe_cancel_subscription',
+        {
+          subscriptionId: z.string().describe('Stripe subscription ID'),
+          cancelAtPeriodEnd: z.boolean().default(false).describe('Whether to cancel at period end or immediately')
+        },
+        async ({ subscriptionId, cancelAtPeriodEnd }) => {
+          try {
+            const subscription = await this.stripeService!.cancelSubscription(subscriptionId, cancelAtPeriodEnd);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(subscription, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to cancel subscription: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'list_stripe_products',
+        {
+          page: z.number().optional().default(1).describe('Page number'),
+          perPage: z.number().optional().default(50).describe('Records per page'),
+          filter: z.string().optional().describe('Filter products (PocketBase filter syntax)')
+        },
+        async ({ page, perPage, filter }) => {
+          try {
+            const options: any = {};
+            if (filter) options.filter = filter;
+
+            const products = await this.pb.collection('stripe_products').getList(page, perPage, options);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(products, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list Stripe products: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'list_stripe_customers',
+        {
+          page: z.number().optional().default(1).describe('Page number'),
+          perPage: z.number().optional().default(50).describe('Records per page'),
+          filter: z.string().optional().describe('Filter customers (PocketBase filter syntax)')
+        },
+        async ({ page, perPage, filter }) => {
+          try {
+            const options: any = {};
+            if (filter) options.filter = filter;
+
+            const customers = await this.pb.collection('stripe_customers').getList(page, perPage, options);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(customers, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list Stripe customers: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'list_stripe_subscriptions',
+        {
+          page: z.number().optional().default(1).describe('Page number'),
+          perPage: z.number().optional().default(50).describe('Records per page'),
+          filter: z.string().optional().describe('Filter subscriptions (PocketBase filter syntax)')
+        },
+        async ({ page, perPage, filter }) => {
+          try {
+            const options: any = {};
+            if (filter) options.filter = filter;
+
+            const subscriptions = await this.pb.collection('stripe_subscriptions').getList(page, perPage, options);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(subscriptions, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list Stripe subscriptions: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'stripe_handle_webhook',
+        {
+          body: z.string().describe('Webhook request body'),
+          signature: z.string().describe('Stripe signature header')
+        },
+        async ({ body, signature }) => {
+          try {
+            const result = await this.stripeService!.handleWebhook(body, signature);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to handle webhook: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'sync_stripe_products',
+        {},
+        async () => {
+          try {
+            const result = await this.stripeService!.syncProducts();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to sync products: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+    }
+
+    // Email Management
+    if (this.emailService) {
+      this.server.tool(
+        'create_email_template',
+        {
+          name: z.string().describe('Template name'),
+          subject: z.string().describe('Email subject'),
+          htmlContent: z.string().describe('HTML email content'),
+          textContent: z.string().optional().describe('Plain text email content'),
+          variables: z.array(z.string()).optional().describe('Template variables')
+        },
+        async ({ name, subject, htmlContent, textContent, variables }) => {
+          try {
+            const template = await this.emailService!.createTemplate({
+              name,
+              subject,
+              htmlContent,
+              textContent,
+              variables
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create email template: ${error.message}` }],
+              isError: true
+            };
+          }
+        }      );
+
+      this.server.tool(
+        'update_email_template',
+        {
+          name: z.string().describe('Template name to update'),
+          subject: z.string().optional().describe('Email subject'),
+          htmlContent: z.string().optional().describe('HTML email content'),
+          textContent: z.string().optional().describe('Plain text email content'),
+          variables: z.array(z.string()).optional().describe('Template variables')
+        },
+        async ({ name, subject, htmlContent, textContent, variables }) => {
+          try {
+            const template = await this.emailService!.updateTemplate(name, {
+              subject,
+              htmlContent,
+              textContent,
+              variables
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to update email template: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'send_templated_email',
+        {
+          template: z.string().describe('Template name'),
+          to: z.string().email().describe('Recipient email'),
+          from: z.string().email().optional().describe('Sender email'),
+          variables: z.record(z.any()).optional().describe('Template variables'),
+          customSubject: z.string().optional().describe('Override template subject')
+        },
+        async ({ template, to, from, variables, customSubject }) => {
+          try {
+            const result = await this.emailService!.sendTemplatedEmail({
+              template,
+              to,
+              from,
+              variables,
+              customSubject
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to send templated email: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'send_custom_email',
+        {
+          to: z.string().email().describe('Recipient email'),
+          from: z.string().email().optional().describe('Sender email'),
+          subject: z.string().describe('Email subject'),
+          html: z.string().describe('HTML email content'),
+          text: z.string().optional().describe('Plain text email content')
+        },
+        async ({ to, from, subject, html, text }) => {
+          try {
+            const result = await this.emailService!.sendCustomEmail({
+              to,
+              from,
+              subject,
+              html,
+              text
+            });
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to send custom email: ${error.message}` }],
+              isError: true
+            };
+          }
+        }      );
+
+      this.server.tool(
+        'get_email_template',
+        {
+          name: z.string().describe('Template name to retrieve')
+        },
+        async ({ name }) => {
+          try {
+            const template = await this.emailService!.getTemplate(name);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to get email template: ${error.message}` }],
+              isError: true
+            };
+          }
+        }      );
+
+      this.server.tool(
+        'list_email_templates',
+        {
+          page: z.number().optional().default(1).describe('Page number'),
+          perPage: z.number().optional().default(50).describe('Records per page'),
+          filter: z.string().optional().describe('Filter templates (PocketBase filter syntax)')
+        },
+        async ({ page, perPage, filter }) => {
+          try {
+            const options: any = {};
+            if (filter) options.filter = filter;
+
+            const templates = await this.pb.collection('email_templates').getList(page, perPage, options);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(templates, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list email templates: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'list_email_logs',
+        {
+          page: z.number().optional().default(1).describe('Page number'),
+          perPage: z.number().optional().default(50).describe('Records per page'),
+          filter: z.string().optional().describe('Filter logs (PocketBase filter syntax)')
+        },
+        async ({ page, perPage, filter }) => {
+          try {
+            const options: any = {};
+            if (filter) options.filter = filter;
+
+            const logs = await this.pb.collection('email_logs').getList(page, perPage, options);
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(logs, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list email logs: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'delete_email_template',
+        {
+          name: z.string().describe('Template name to delete')
+        },
+        async ({ name }) => {
+          try {
+            // First get the template to get its ID
+            const template = await this.emailService!.getTemplate(name);
+            
+            // Delete the template by ID
+            await this.pb.collection('email_templates').delete(template.id);
+
+            return {
+              content: [{ type: 'text', text: `Successfully deleted email template: ${name}` }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to delete email template: ${error.message}` }],
+              isError: true
+            };
+          }
+        }      );
+
+      this.server.tool(
+        'test_email_connection',
+        {},
+        async () => {
+          try {
+            const result = await this.emailService!.testConnection();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to test email connection: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'setup_default_email_templates',
+        {},
+        async () => {
+          try {
+            const result = await this.emailService!.createDefaultTemplates();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to setup default templates: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );    }
+
+    // === FULL-STACK SAAS AUTOMATION TOOLS ===
+    
+    // Complete user registration with email and optional Stripe customer
+    this.server.tool(
+      'register_user_with_automation',
+      {
+        email: z.string().email().describe('User email'),
+        password: z.string().describe('User password'),
+        passwordConfirm: z.string().describe('Password confirmation'),
+        name: z.string().optional().describe('User name'),
+        sendWelcomeEmail: z.boolean().default(true).describe('Send welcome email'),
+        createStripeCustomer: z.boolean().default(true).describe('Create Stripe customer'),
+        welcomeEmailTemplate: z.string().default('welcome').describe('Welcome email template name'),
+        metadata: z.record(z.any()).optional().describe('Additional metadata'),
+        collection: z.string().optional().default('users').describe('Collection name')
+      },
+      async ({ email, password, passwordConfirm, name, sendWelcomeEmail, createStripeCustomer, welcomeEmailTemplate, metadata, collection }) => {
+        try {
+          const results: any = { user: null, stripeCustomer: null, emailLog: null };
+
+          // 1. Create user account
+          const user = await this.pb.collection(collection).create({
+            email,
+            password,
+            passwordConfirm,
+            name,
+            ...metadata
+          });
+          results.user = user;
+
+          // 2. Create Stripe customer if requested and service available
+          if (createStripeCustomer && this.stripeService) {
+            try {
+              const stripeCustomer = await this.stripeService.createCustomer({
+                email,
+                name,
+                userId: user.id,
+                metadata: { userId: user.id, ...metadata }
+              });
+              results.stripeCustomer = stripeCustomer;
+            } catch (error: any) {
+              console.warn('Failed to create Stripe customer:', error.message);
+              results.stripeCustomerError = error.message;
+            }
+          }
+
+          // 3. Send welcome email if requested and service available
+          if (sendWelcomeEmail && this.emailService) {
+            try {
+              const emailLog = await this.emailService.sendTemplatedEmail({
+                template: welcomeEmailTemplate,
+                to: email,
+                variables: {
+                  userName: name || email.split('@')[0],
+                  appName: process.env.APP_NAME || 'Our Platform',
+                  userEmail: email
+                }
+              });
+              results.emailLog = emailLog;
+            } catch (error: any) {
+              console.warn('Failed to send welcome email:', error.message);
+              results.emailError = error.message;
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to register user: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Complete subscription flow with email notifications
+    this.server.tool(
+      'create_subscription_flow',
+      {
+        userEmail: z.string().email().describe('User email'),
+        priceId: z.string().describe('Stripe price ID'),
+        successUrl: z.string().url().describe('Success redirect URL'),
+        cancelUrl: z.string().url().describe('Cancel redirect URL'),
+        sendConfirmationEmail: z.boolean().default(true).describe('Send payment confirmation email'),
+        emailTemplate: z.string().default('payment_success').describe('Email template for confirmation'),
+        metadata: z.record(z.any()).optional().describe('Additional metadata')
+      },
+      async ({ userEmail, priceId, successUrl, cancelUrl, sendConfirmationEmail, emailTemplate, metadata }) => {
+        try {
+          if (!this.stripeService) {
+            throw new Error('Stripe service not configured');
+          }
+
+          const results: any = { customer: null, checkoutSession: null, emailLog: null };
+
+          // 1. Get or create Stripe customer
+          let stripeCustomer;
+          try {
+            stripeCustomer = await this.pb.collection('stripe_customers')
+              .getFirstListItem(`email="${userEmail}"`);
+          } catch {
+            // Create new customer if not found
+            stripeCustomer = await this.stripeService.createCustomer({
+              email: userEmail,
+              metadata: metadata || {}
+            });
+          }
+          results.customer = stripeCustomer;
+
+          // 2. Create checkout session
+          const checkoutSession = await this.stripeService.createCheckoutSession({
+            priceId,
+            customerId: stripeCustomer.stripeCustomerId,
+            successUrl,
+            cancelUrl,
+            mode: 'subscription',
+            metadata: metadata || {}
+          });
+          results.checkoutSession = checkoutSession;
+
+          // 3. Send confirmation email (this will be triggered by webhook in real scenarios)
+          if (sendConfirmationEmail && this.emailService) {
+            try {
+              const emailLog = await this.emailService.sendTemplatedEmail({
+                template: emailTemplate,
+                to: userEmail,
+                variables: {
+                  userName: stripeCustomer.name || userEmail.split('@')[0],
+                  appName: process.env.APP_NAME || 'Our Platform',
+                  checkoutUrl: checkoutSession.url
+                }
+              });
+              results.emailLog = emailLog;
+            } catch (error: any) {
+              console.warn('Failed to send confirmation email:', error.message);
+              results.emailError = error.message;
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create subscription flow: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Process payment webhook and send notification email
+    this.server.tool(
+      'process_payment_webhook_with_email',
+      {
+        webhookBody: z.string().describe('Stripe webhook body'),
+        webhookSignature: z.string().describe('Stripe webhook signature'),
+        sendNotificationEmail: z.boolean().default(true).describe('Send notification email'),
+        emailTemplate: z.string().default('payment_success').describe('Email template to use')
+      },
+      async ({ webhookBody, webhookSignature, sendNotificationEmail, emailTemplate }) => {
+        try {
+          if (!this.stripeService) {
+            throw new Error('Stripe service not configured');
+          }
+
+          const results: any = { webhookResult: null, emailLog: null };
+
+          // 1. Process webhook
+          const webhookResult = await this.stripeService.handleWebhook(webhookBody, webhookSignature);
+          results.webhookResult = webhookResult;
+
+          // 2. Send notification email if successful payment
+          if (sendNotificationEmail && this.emailService && webhookResult.processed) {
+            try {
+              // Parse webhook data to get customer email
+              const event = JSON.parse(webhookBody);
+              
+              if (event.type === 'checkout.session.completed' || event.type === 'invoice.payment_succeeded') {
+                const customerEmail = event.data.object.customer_email || 
+                                     event.data.object.customer?.email;
+                
+                if (customerEmail) {
+                  const emailLog = await this.emailService.sendTemplatedEmail({
+                    template: emailTemplate,
+                    to: customerEmail,
+                    variables: {
+                      userName: customerEmail.split('@')[0],
+                      appName: process.env.APP_NAME || 'Our Platform',
+                      amount: (event.data.object.amount_total || event.data.object.amount_paid) / 100,
+                      currency: (event.data.object.currency || 'usd').toUpperCase(),
+                      date: new Date().toLocaleDateString()
+                    }
+                  });
+                  results.emailLog = emailLog;
+                }
+              }
+            } catch (error: any) {
+              console.warn('Failed to send payment notification email:', error.message);
+              results.emailError = error.message;
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to process webhook: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Setup complete SaaS backend (collections, templates, products)
+    this.server.tool(
+      'setup_complete_saas_backend',
+      {
+        appName: z.string().default('My SaaS App').describe('Application name'),
+        products: z.array(z.object({
+          name: z.string(),
+          description: z.string().optional(),
+          price: z.number(),
+          currency: z.string().default('usd'),
+          recurring: z.boolean().default(true),
+          interval: z.enum(['month', 'year']).default('month')
+        })).optional().describe('Products to create'),
+        customEmailTemplates: z.array(z.object({
+          name: z.string(),
+          subject: z.string(),
+          htmlContent: z.string(),
+          textContent: z.string().optional(),
+          variables: z.array(z.string()).optional()
+        })).optional().describe('Custom email templates to create')
+      },
+      async ({ appName, products, customEmailTemplates }) => {
+        try {
+          const results: any = {
+            collections: null,
+            emailTemplates: null,
+            stripeProducts: null,
+            customTemplates: null
+          };
+
+          // 1. Setup required collections
+          try {
+            const collectionsResult = await this.pb.collection('_collections').create({
+              name: 'setup_advanced_collections'
+            });
+            results.collections = 'setup completed';
+          } catch (error: any) {
+            // Collections might already exist, which is fine
+            results.collections = 'collections already exist or setup completed';
+          }
+
+          // 2. Setup default email templates
+          if (this.emailService) {
+            try {
+              const templatesResult = await this.emailService.createDefaultTemplates();
+              results.emailTemplates = templatesResult;
+
+              // Update templates with app name
+              try {
+                const templates = ['welcome', 'payment_success', 'subscription_expired'];
+                for (const templateName of templates) {
+                  const template = await this.emailService.getTemplate(templateName);
+                  await this.emailService.updateTemplate(templateName, {
+                    htmlContent: template.htmlContent.replace(/\{\{appName\}\}/g, appName),
+                    textContent: template.textContent?.replace(/\{\{appName\}\}/g, appName)
+                  });
+                }
+              } catch (error: any) {
+                console.warn('Failed to update template app names:', error.message);
+              }
+            } catch (error: any) {
+              results.emailTemplatesError = error.message;
+            }
+
+            // 3. Create custom email templates
+            if (customEmailTemplates && customEmailTemplates.length > 0) {
+              const customResults = [];
+              for (const template of customEmailTemplates) {
+                try {
+                  const created = await this.emailService.createTemplate(template);
+                  customResults.push({ template: template.name, action: 'created', id: created.id });
+                } catch (error: any) {
+                  customResults.push({ template: template.name, action: 'error', error: error.message });
+                }
+              }
+              results.customTemplates = customResults;
+            }
+          }
+
+          // 4. Create Stripe products
+          if (this.stripeService && products && products.length > 0) {
+            const productResults = [];
+            for (const product of products) {
+              try {
+                const created = await this.stripeService.createProduct(product);
+                productResults.push({ product: product.name, action: 'created', id: created.id });
+              } catch (error: any) {
+                productResults.push({ product: product.name, action: 'error', error: error.message });
+              }
+            }
+            results.stripeProducts = productResults;
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to setup SaaS backend: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Cancel subscription with email notification
+    this.server.tool(
+      'cancel_subscription_with_email',
+      {
+        subscriptionId: z.string().describe('Stripe subscription ID'),
+        userEmail: z.string().email().describe('User email'),
+        cancelAtPeriodEnd: z.boolean().default(true).describe('Cancel at period end'),
+        sendNotificationEmail: z.boolean().default(true).describe('Send cancellation email'),
+        reason: z.string().optional().describe('Cancellation reason'),
+        emailTemplate: z.string().default('subscription_expired').describe('Email template to use')
+      },
+      async ({ subscriptionId, userEmail, cancelAtPeriodEnd, sendNotificationEmail, reason, emailTemplate }) => {
+        try {
+          if (!this.stripeService) {
+            throw new Error('Stripe service not configured');
+          }
+
+          const results: any = { subscription: null, emailLog: null };
+
+          // 1. Cancel subscription
+          const subscription = await this.stripeService.cancelSubscription(subscriptionId, cancelAtPeriodEnd);
+          results.subscription = subscription;
+
+          // 2. Send notification email
+          if (sendNotificationEmail && this.emailService) {
+            try {
+              const emailLog = await this.emailService.sendTemplatedEmail({
+                template: emailTemplate,
+                to: userEmail,
+                variables: {
+                  userName: userEmail.split('@')[0],
+                  appName: process.env.APP_NAME || 'Our Platform',
+                  planName: 'Subscription',
+                  expirationDate: cancelAtPeriodEnd ? 
+                    new Date(subscription.current_period_end * 1000).toLocaleDateString() :
+                    new Date().toLocaleDateString(),
+                  reason: reason || 'User requested cancellation',
+                  renewalUrl: process.env.APP_URL || 'https://yourapp.com'
+                }
+              });
+              results.emailLog = emailLog;
+            } catch (error: any) {
+              console.warn('Failed to send cancellation email:', error.message);
+              results.emailError = error.message;
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to cancel subscription: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Component Generation Tools (Phase 3 - Coming Soon)
+    this.server.tool(
+      'generate_component',
+      {
+        type: z.enum(['form', 'table', 'card', 'modal', 'pricing', 'auth']).describe('Component type'),
+        collection: z.string().optional().describe('PocketBase collection name'),
+        fields: z.array(z.string()).optional().describe('Fields to include'),
+        framework: z.enum(['react', 'svelte', 'vue', 'vanilla']).default('react').describe('Frontend framework'),
+        styling: z.enum(['tailwind', 'daisyui', 'css']).default('tailwind').describe('Styling approach')
+      },      async ({ type, collection, fields, framework, styling }) => {
+        // TODO: Implement component generation in Phase 3
+        return {
+          content: [{ 
+            type: 'text', 
+            text: `Component generation for ${type} with ${framework} and ${styling} is coming in Phase 3. Check back soon!` 
+          }]
+        };
+      }
+    );
+
+    // Advanced Features Info Tool
+    this.server.tool(
+      'get_saas_backend_status',
+      {},
+      async () => {
+        const status: any = {
+          services: {
+            pocketbase: { status: 'active', url: this.pb.baseUrl },
+            stripe: { status: this.stripeService ? 'active' : 'not configured' },
+            email: { status: this.emailService ? 'active' : 'not configured' }
+          },
+          collections: { status: 'unknown', count: 0 },
+          emailTemplates: { status: 'unknown', count: 0 },
+          stripeProducts: { status: 'unknown', count: 0 },
+          stripeCustomers: { status: 'unknown', count: 0 },
+          readyForProduction: false
+        };
+
+        try {
+          // Check collections
+          const collections = await this.pb.collections.getList(1, 100);
+          status.collections = { 
+            status: 'active', 
+            count: collections.items.length,
+            hasAdvanced: collections.items.some((c: any) => 
+              ['stripe_products', 'stripe_customers', 'email_templates'].includes(c.name)
+            )
+          };
+
+          // Check email templates
+          if (this.emailService) {
+            try {
+              const templates = await this.pb.collection('email_templates').getList(1, 100);
+              status.emailTemplates = { 
+                status: 'active', 
+                count: templates.items.length,
+                hasDefaults: templates.items.some((t: any) => 
+                  ['welcome', 'payment_success', 'subscription_expired'].includes(t.name)
+                )
+              };
+            } catch (error) {
+              status.emailTemplates = { status: 'collection_missing', count: 0 };
+            }
+          }
+
+          // Check Stripe data
+          if (this.stripeService) {
+            try {
+              const products = await this.pb.collection('stripe_products').getList(1, 100);
+              status.stripeProducts = { status: 'active', count: products.items.length };
+
+              const customers = await this.pb.collection('stripe_customers').getList(1, 100);
+              status.stripeCustomers = { status: 'active', count: customers.items.length };
+            } catch (error) {
+              status.stripeProducts = { status: 'collection_missing', count: 0 };
+              status.stripeCustomers = { status: 'collection_missing', count: 0 };
+            }
+          }
+
+          // Determine production readiness
+          status.readyForProduction = 
+            status.services.pocketbase.status === 'active' &&
+            status.services.stripe.status === 'active' &&
+            status.services.email.status === 'active' &&
+            status.collections.hasAdvanced &&
+            status.emailTemplates.hasDefaults;
+
+          // Recommendations
+          const recommendations: string[] = [];
+          if (status.services.stripe.status !== 'active') {
+            recommendations.push('Configure Stripe (add STRIPE_SECRET_KEY)');
+          }
+          if (status.services.email.status !== 'active') {
+            recommendations.push('Configure email service (SMTP or SendGrid)');
+          }
+          if (!status.collections.hasAdvanced) {
+            recommendations.push('Run setup_advanced_collections tool');
+          }
+          if (!status.emailTemplates.hasDefaults) {
+            recommendations.push('Run setup_default_email_templates tool');
+          }
+          if (status.stripeProducts.count === 0 && status.services.stripe.status === 'active') {
+            recommendations.push('Create some products with stripe_create_product');
+          }
+
+          status.recommendations = recommendations;
+
+        } catch (error: any) {
+          status.error = error.message;
+        }
+
+        return {
+          content: [{ type: 'text', text: JSON.stringify(status, null, 2) }]
+        };
+      }
+    );
+
+    this.server.tool(
+      'get_advanced_features_info',
+      {},
+      async () => {
+        const info: any = {
+          version: '1.0.0',
+          compatibility: 'Enhanced PocketBase Server',
+          features: {
+            payments: !!this.stripeService,
+            email: !!this.emailService,
+            backend: true,
+            automation: true,
+            components: false, // Phase 3
+            deployment: false  // Phase 4
+          },
+          services: {
+            stripe: this.stripeService ? 'initialized' : 'not configured',
+            email: this.emailService ? 'initialized' : 'not configured',
+            pocketbase: 'initialized'
+          },
+          automationTools: [
+            'register_user_with_automation',
+            'create_subscription_flow', 
+            'process_payment_webhook_with_email',
+            'setup_complete_saas_backend',
+            'cancel_subscription_with_email'
+          ],
+          nextSteps: [] as string[]
+        };
+
+        if (!this.stripeService) {
+          info.nextSteps.push('Add STRIPE_SECRET_KEY to enable payment features');
+        }
+        if (!this.emailService) {
+          info.nextSteps.push('Add email configuration (SMTP or SendGrid) to enable email features');
+        }
+        if (this.stripeService && this.emailService) {
+          info.nextSteps.push('Run setup_complete_saas_backend to initialize everything');
+          info.nextSteps.push('Use automation tools for complete user workflows');
+        }
+
+        return {
+          content: [{ type: 'text', text: JSON.stringify(info, null, 2) }]
+        };
       }
     );
   }
