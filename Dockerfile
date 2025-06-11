@@ -30,8 +30,22 @@ COPY --from=builder /app/node_modules ./node_modules
 # Expose the port on which the server will run (assume 3000, replace if necessary)
 EXPOSE 3000
 
-# Set the environment variables for the PocketBase connection
+# Set default environment variables (these will be overridden by Smithery)
 ENV POCKETBASE_URL=http://127.0.0.1:8090
+ENV POCKETBASE_ADMIN_EMAIL=""
+ENV POCKETBASE_ADMIN_PASSWORD=""
+ENV POCKETBASE_DATA_DIR=""
+ENV STRIPE_SECRET_KEY=""
+ENV STRIPE_WEBHOOK_SECRET=""
+ENV EMAIL_SERVICE=""
+ENV SENDGRID_API_KEY=""
+ENV SMTP_HOST=""
+ENV SMTP_PORT="587"
+ENV SMTP_USER=""
+ENV SMTP_PASS=""
+ENV DEFAULT_FROM_EMAIL=""
+ENV APP_NAME=""
+ENV APP_URL=""
 
 # Start the server
 CMD ["node", "build/index.js"]
