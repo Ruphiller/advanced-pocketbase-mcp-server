@@ -3255,9 +3255,7 @@ class PocketBaseServer {
                 return_url: returnUrl,
                 type
               }),
-            });
-
-            const accountLink = await response.json();
+            });            const accountLink = await response.json();
             return { content: [{ type: 'text', text: JSON.stringify(accountLink, null, 2) }] };
           } catch (error: any) {
             return {
