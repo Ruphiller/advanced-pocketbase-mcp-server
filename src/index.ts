@@ -3774,9 +3774,7 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Get email logs tool
+    );    // Get email logs tool
     this.server.tool(
       'get_email_logs',
       {
@@ -3794,7 +3792,8 @@ class PocketBaseServer {
           return {
             content: [{ type: 'text', text: JSON.stringify(logs, null, 2) }]
           };
-        } catch (error: any) {          return {
+        } catch (error: any) {
+          return {
             content: [{ type: 'text', text: `Failed to get email logs: ${error.message}` }],
             isError: true
           };
@@ -3802,7 +3801,856 @@ class PocketBaseServer {
       }
     );
 
-    console.error(`[MCP DEBUG] setupTools completed. Total tools registered.`);
+    // === AUTOMATION & WORKFLOW TOOLS ===
+    // Advanced automation tools for workflow management and business process automation
+
+    // Webhook management tool
+    this.server.tool(
+      'create_webhook',
+      {
+        name: z.string().describe('Webhook name'),
+        url: z.string().url().describe('Webhook URL endpoint'),
+        events: z.array(z.string()).describe('Events to trigger webhook (e.g., ["create", "update", "delete"])'),
+        collection: z.string().describe('Collection to monitor'),
+        active: z.boolean().default(true).describe('Whether webhook is active'),
+        headers: z.record(z.string()).optional().describe('Custom headers to send'),
+        secret: z.string().optional().describe('Secret for webhook verification')
+      },
+      async ({ name, url, events, collection, active, headers, secret }) => {
+        try {
+          const webhook = await this.pb.collection('webhooks').create({
+            name,
+            url,
+            events,
+            collection,
+            active,
+            headers: headers || {},
+            secret,
+            created: new Date().toISOString(),
+            updated: new Date().toISOString()
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(webhook, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create webhook: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Trigger webhook manually
+    this.server.tool(
+      'trigger_webhook',
+      {
+        webhookId: z.string().describe('Webhook ID'),
+        payload: z.record(z.any()).describe('Data to send to webhook'),
+        testMode: z.boolean().default(false).describe('Test mode (logs response without persisting)')
+      },
+      async ({ webhookId, payload, testMode }) => {
+        try {
+          const webhook = await this.pb.collection('webhooks').getOne(webhookId);
+          
+          const response = await fetch(webhook.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...webhook.headers,
+              ...(webhook.secret && { 'X-Webhook-Secret': webhook.secret })
+            },
+            body: JSON.stringify(payload)
+          });
+
+          const responseData = {
+            status: response.status,
+            statusText: response.statusText,
+            headers: Object.fromEntries(response.headers.entries()),
+            body: await response.text()
+          };
+
+          if (!testMode) {
+            await this.pb.collection('webhook_logs').create({
+              webhookId,
+              payload,
+              response: responseData,
+              success: response.ok,
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(responseData, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to trigger webhook: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Scheduled task management
+    this.server.tool(
+      'create_scheduled_task',
+      {
+        name: z.string().describe('Task name'),
+        schedule: z.string().describe('Cron expression (e.g., "0 9 * * 1-5" for weekdays at 9am)'),
+        action: z.enum(['email', 'webhook', 'database_cleanup', 'custom']).describe('Action type'),
+        config: z.record(z.any()).describe('Task configuration'),
+        active: z.boolean().default(true).describe('Whether task is active'),
+        timezone: z.string().default('UTC').describe('Timezone for schedule')
+      },
+      async ({ name, schedule, action, config, active, timezone }) => {
+        try {
+          const task = await this.pb.collection('scheduled_tasks').create({
+            name,
+            schedule,
+            action,
+            config,
+            active,
+            timezone,
+            lastRun: null,
+            nextRun: null, // Would be calculated by scheduler
+            created: new Date().toISOString(),
+            updated: new Date().toISOString()
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(task, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create scheduled task: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Data transformation pipeline
+    this.server.tool(
+      'create_data_pipeline',
+      {
+        name: z.string().describe('Pipeline name'),
+        sourceCollection: z.string().describe('Source collection'),
+        targetCollection: z.string().describe('Target collection'),
+        transformations: z.array(z.object({
+          field: z.string(),
+          operation: z.enum(['map', 'filter', 'aggregate', 'join', 'custom']),
+          config: z.record(z.any())
+        })).describe('Data transformation steps'),
+        schedule: z.string().optional().describe('Cron schedule for automatic execution'),
+        active: z.boolean().default(true).describe('Whether pipeline is active')
+      },
+      async ({ name, sourceCollection, targetCollection, transformations, schedule, active }) => {
+        try {
+          const pipeline = await this.pb.collection('data_pipelines').create({
+            name,
+            sourceCollection,
+            targetCollection,
+            transformations,
+            schedule,
+            active,
+            lastRun: null,
+            status: 'created',
+            created: new Date().toISOString(),
+            updated: new Date().toISOString()
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(pipeline, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create data pipeline: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Execute data pipeline
+    this.server.tool(
+      'execute_data_pipeline',
+      {
+        pipelineId: z.string().describe('Pipeline ID'),
+        dryRun: z.boolean().default(false).describe('Dry run mode (preview without executing)')
+      },
+      async ({ pipelineId, dryRun }) => {
+        try {
+          const pipeline = await this.pb.collection('data_pipelines').getOne(pipelineId);
+          
+          // Get source data
+          const sourceData = await this.pb.collection(pipeline.sourceCollection).getFullList();
+          
+          // Apply transformations
+          let transformedData = sourceData;
+          const executionLog = [];
+          
+          for (const transformation of pipeline.transformations) {
+            const stepLog = {
+              step: transformation.operation,
+              field: transformation.field,
+              inputCount: transformedData.length,
+              outputCount: 0,
+              config: transformation.config
+            };
+            
+            switch (transformation.operation) {
+              case 'map':
+                transformedData = transformedData.map(item => ({
+                  ...item,
+                  [transformation.field]: this.applyMapping(item[transformation.field], transformation.config)
+                }));
+                break;
+              case 'filter':
+                transformedData = transformedData.filter(item => 
+                  this.applyFilter(item, transformation.config)
+                );
+                break;
+              case 'aggregate':
+                transformedData = this.applyAggregation(transformedData, transformation.config);
+                break;
+            }
+            
+            stepLog.outputCount = transformedData.length;
+            executionLog.push(stepLog);
+          }
+          
+          if (!dryRun) {
+            // Insert transformed data
+            const results = [];
+            for (const item of transformedData) {
+              const result = await this.pb.collection(pipeline.targetCollection).create(item);
+              results.push(result);
+            }
+            
+            // Update pipeline last run
+            await this.pb.collection('data_pipelines').update(pipelineId, {
+              lastRun: new Date().toISOString(),
+              status: 'completed'
+            });
+            
+            return {
+              content: [{ type: 'text', text: JSON.stringify({ 
+                executionLog, 
+                processedRecords: transformedData.length,
+                insertedRecords: results.length 
+              }, null, 2) }]
+            };
+          }
+          
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ 
+              executionLog, 
+              previewData: transformedData.slice(0, 5),
+              totalRecords: transformedData.length,
+              dryRun: true 
+            }, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to execute data pipeline: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Business rule engine
+    this.server.tool(
+      'create_business_rule',
+      {
+        name: z.string().describe('Rule name'),
+        collection: z.string().describe('Collection to apply rule to'),
+        trigger: z.enum(['create', 'update', 'delete', 'schedule']).describe('When to trigger rule'),
+        conditions: z.array(z.object({
+          field: z.string(),
+          operator: z.enum(['equals', 'not_equals', 'greater_than', 'less_than', 'contains', 'in', 'not_in']),
+          value: z.any()
+        })).describe('Conditions that must be met'),
+        actions: z.array(z.object({
+          type: z.enum(['email', 'webhook', 'update_field', 'create_record', 'custom']),
+          config: z.record(z.any())
+        })).describe('Actions to execute'),
+        active: z.boolean().default(true).describe('Whether rule is active'),
+        priority: z.number().default(100).describe('Rule priority (lower = higher priority)')
+      },
+      async ({ name, collection, trigger, conditions, actions, active, priority }) => {
+        try {
+          const rule = await this.pb.collection('business_rules').create({
+            name,
+            collection,
+            trigger,
+            conditions,
+            actions,
+            active,
+            priority,
+            executionCount: 0,
+            lastExecuted: null,
+            created: new Date().toISOString(),
+            updated: new Date().toISOString()
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(rule, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create business rule: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Evaluate business rules
+    this.server.tool(
+      'evaluate_business_rules',
+      {
+        collection: z.string().describe('Collection name'),
+        recordId: z.string().describe('Record ID'),
+        trigger: z.enum(['create', 'update', 'delete']).describe('Trigger event'),
+        testMode: z.boolean().default(false).describe('Test mode (evaluate without executing actions)')
+      },
+      async ({ collection, recordId, trigger, testMode }) => {
+        try {
+          // Get record data
+          const record = await this.pb.collection(collection).getOne(recordId);
+          
+          // Get applicable rules
+          const rules = await this.pb.collection('business_rules').getList(1, 100, {
+            filter: `collection = "${collection}" && trigger = "${trigger}" && active = true`,
+            sort: 'priority'
+          });
+          
+          const evaluationResults = [];
+          
+          for (const rule of rules.items) {            const ruleResult = {
+              ruleId: rule.id,
+              ruleName: rule.name,
+              conditionsMet: true,
+              actionsExecuted: [] as any[],
+              errors: [] as string[]
+            };
+            
+            // Evaluate conditions
+            for (const condition of rule.conditions) {
+              const fieldValue = record[condition.field];
+              const conditionMet = this.evaluateCondition(fieldValue, condition.operator, condition.value);
+              
+              if (!conditionMet) {
+                ruleResult.conditionsMet = false;
+                break;
+              }
+            }
+            
+            // Execute actions if conditions met
+            if (ruleResult.conditionsMet && !testMode) {
+              for (const action of rule.actions) {
+                try {
+                  const actionResult = await this.executeRuleAction(action, record, collection);
+                  ruleResult.actionsExecuted.push(actionResult);
+                } catch (error: any) {
+                  ruleResult.errors.push(`Action ${action.type} failed: ${error.message}`);
+                }
+              }
+              
+              // Update rule execution count
+              await this.pb.collection('business_rules').update(rule.id, {
+                executionCount: rule.executionCount + 1,
+                lastExecuted: new Date().toISOString()
+              });
+            }
+            
+            evaluationResults.push(ruleResult);
+          }
+          
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ 
+              recordId, 
+              trigger, 
+              testMode,
+              rulesEvaluated: evaluationResults.length,
+              results: evaluationResults 
+            }, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to evaluate business rules: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Workflow management
+    this.server.tool(
+      'create_workflow',
+      {
+        name: z.string().describe('Workflow name'),
+        description: z.string().optional().describe('Workflow description'),
+        steps: z.array(z.object({
+          id: z.string(),
+          name: z.string(),
+          type: z.enum(['approval', 'email', 'webhook', 'delay', 'condition', 'custom']),
+          config: z.record(z.any()),
+          dependencies: z.array(z.string()).optional()
+        })).describe('Workflow steps'),
+        triggers: z.array(z.object({
+          type: z.enum(['manual', 'record_created', 'record_updated', 'webhook', 'schedule']),
+          config: z.record(z.any())
+        })).describe('Workflow triggers'),
+        active: z.boolean().default(true).describe('Whether workflow is active')
+      },
+      async ({ name, description, steps, triggers, active }) => {
+        try {
+          const workflow = await this.pb.collection('workflows').create({
+            name,
+            description,
+            steps,
+            triggers,
+            active,
+            executionCount: 0,
+            lastExecuted: null,
+            created: new Date().toISOString(),
+            updated: new Date().toISOString()
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(workflow, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create workflow: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Execute workflow
+    this.server.tool(
+      'execute_workflow',
+      {
+        workflowId: z.string().describe('Workflow ID'),
+        input: z.record(z.any()).optional().describe('Input data for workflow'),
+        dryRun: z.boolean().default(false).describe('Dry run mode')
+      },
+      async ({ workflowId, input, dryRun }) => {
+        try {
+          const workflow = await this.pb.collection('workflows').getOne(workflowId);
+          
+          // Create workflow instance
+          const instance = await this.pb.collection('workflow_instances').create({
+            workflowId,
+            status: 'running',
+            input: input || {},
+            currentStep: 0,
+            startTime: new Date().toISOString(),
+            endTime: null,
+            output: {},
+            logs: []
+          });          const executionResults = {
+            instanceId: instance.id,
+            status: 'running',
+            steps: [] as any[],
+            dryRun
+          };
+
+          if (!dryRun) {
+            // Execute workflow steps
+            for (let i = 0; i < workflow.steps.length; i++) {
+              const step = workflow.steps[i];
+              const stepResult = await this.executeWorkflowStep(step, instance, input || {});
+              executionResults.steps.push(stepResult);
+              
+              if (stepResult.status === 'failed') {
+                break;
+              }
+            }
+            
+            // Update workflow execution count
+            await this.pb.collection('workflows').update(workflowId, {
+              executionCount: workflow.executionCount + 1,
+              lastExecuted: new Date().toISOString()
+            });
+          } else {
+            // Dry run - just validate steps
+            for (const step of workflow.steps) {
+              executionResults.steps.push({
+                stepId: step.id,
+                name: step.name,
+                type: step.type,
+                status: 'simulated',
+                config: step.config
+              });
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(executionResults, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to execute workflow: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Advanced data aggregation and reporting
+    this.server.tool(
+      'create_report',
+      {
+        name: z.string().describe('Report name'),
+        collection: z.string().describe('Collection to report on'),
+        metrics: z.array(z.object({
+          field: z.string(),
+          operation: z.enum(['count', 'sum', 'avg', 'min', 'max', 'distinct_count']),
+          alias: z.string().optional()
+        })).describe('Metrics to calculate'),
+        groupBy: z.array(z.string()).optional().describe('Fields to group by'),
+        filters: z.array(z.object({
+          field: z.string(),
+          operator: z.string(),
+          value: z.any()
+        })).optional().describe('Report filters'),
+        dateRange: z.object({
+          field: z.string(),
+          start: z.string().optional(),
+          end: z.string().optional()
+        }).optional().describe('Date range filter'),
+        schedule: z.string().optional().describe('Cron schedule for automatic generation')
+      },
+      async ({ name, collection, metrics, groupBy, filters, dateRange, schedule }) => {
+        try {
+          const report = await this.pb.collection('reports').create({
+            name,
+            collection,
+            metrics,
+            groupBy: groupBy || [],
+            filters: filters || [],
+            dateRange,
+            schedule,
+            lastGenerated: null,
+            created: new Date().toISOString(),
+            updated: new Date().toISOString()
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(report, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create report: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Generate report
+    this.server.tool(
+      'generate_report',
+      {
+        reportId: z.string().describe('Report ID'),
+        format: z.enum(['json', 'csv', 'pdf']).default('json').describe('Output format'),
+        email: z.string().email().optional().describe('Email address to send report to')
+      },
+      async ({ reportId, format, email }) => {
+        try {
+          const report = await this.pb.collection('reports').getOne(reportId);
+          
+          // Build query options
+          let queryOptions: any = {};
+          
+          if (report.filters && report.filters.length > 0) {
+            const filterStrings = report.filters.map((f: any) => `${f.field} ${f.operator} ${JSON.stringify(f.value)}`);
+            queryOptions.filter = filterStrings.join(' && ');
+          }
+          
+          if (report.dateRange) {
+            const dateFilter = [];
+            if (report.dateRange.start) {
+              dateFilter.push(`${report.dateRange.field} >= "${report.dateRange.start}"`);
+            }
+            if (report.dateRange.end) {
+              dateFilter.push(`${report.dateRange.field} <= "${report.dateRange.end}"`);
+            }
+            if (dateFilter.length > 0) {
+              queryOptions.filter = queryOptions.filter ? 
+                `${queryOptions.filter} && (${dateFilter.join(' && ')})` : 
+                dateFilter.join(' && ');
+            }
+          }
+          
+          // Get data
+          const data = await this.pb.collection(report.collection).getFullList(queryOptions);
+          
+          // Process metrics and grouping
+          let reportData;
+          if (report.groupBy && report.groupBy.length > 0) {
+            reportData = this.processGroupedMetrics(data, report.metrics, report.groupBy);
+          } else {
+            reportData = this.processMetrics(data, report.metrics);
+          }
+          
+          // Format output
+          let output;
+          switch (format) {
+            case 'csv':
+              output = this.formatAsCSV(reportData);
+              break;
+            case 'pdf':
+              output = await this.formatAsPDF(reportData, report.name);
+              break;
+            default:
+              output = JSON.stringify(reportData, null, 2);
+          }
+          
+          // Save report instance
+          const reportInstance = await this.pb.collection('report_instances').create({
+            reportId,
+            data: reportData,
+            format,
+            generatedAt: new Date().toISOString(),
+            recordCount: Array.isArray(reportData) ? reportData.length : 1
+          });
+          
+          // Update report last generated
+          await this.pb.collection('reports').update(reportId, {
+            lastGenerated: new Date().toISOString()
+          });
+          
+          // Email if requested
+          if (email && this.emailService) {
+            await this.emailService.sendCustomEmail({
+              to: email,
+              subject: `Report: ${report.name}`,
+              html: `<h2>Report: ${report.name}</h2><pre>${output}</pre>`,
+              text: `Report: ${report.name}\n\n${output}`
+            });
+          }
+          
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ 
+              reportInstanceId: reportInstance.id,
+              data: reportData,
+              format,
+              emailSent: !!email
+            }, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to generate report: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );    console.error(`[MCP DEBUG] setupTools completed with automation tools. Total tools registered.`);
+  }
+
+  // Utility methods for automation features
+  private evaluateCondition(fieldValue: any, operator: string, value: any): boolean {
+    switch (operator) {
+      case 'equals':
+        return fieldValue === value;
+      case 'not_equals':
+        return fieldValue !== value;
+      case 'greater_than':
+        return Number(fieldValue) > Number(value);
+      case 'less_than':
+        return Number(fieldValue) < Number(value);
+      case 'contains':
+        return String(fieldValue).includes(String(value));
+      case 'in':
+        return Array.isArray(value) && value.includes(fieldValue);
+      case 'not_in':
+        return Array.isArray(value) && !value.includes(fieldValue);
+      default:
+        return false;
+    }
+  }
+
+  private async executeRuleAction(action: any, record: any, collection: string): Promise<any> {
+    switch (action.type) {
+      case 'email':
+        if (this.emailService) {
+          return await this.emailService.sendTemplatedEmail({
+            template: action.config.template,
+            to: action.config.to || record.email,
+            variables: { ...record, ...action.config.variables }
+          });
+        }
+        throw new Error('Email service not configured');
+      
+      case 'webhook':
+        const response = await fetch(action.config.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ record, action: action.type })
+        });
+        return await response.json();
+      
+      case 'update_field':
+        return await this.pb.collection(collection).update(record.id, {
+          [action.config.field]: action.config.value
+        });
+      
+      case 'create_record':
+        return await this.pb.collection(action.config.collection).create(action.config.data);
+      
+      default:
+        throw new Error(`Unknown action type: ${action.type}`);
+    }
+  }
+
+  private async executeWorkflowStep(step: any, instance: any, input: any): Promise<any> {
+    try {
+      switch (step.type) {
+        case 'email':
+          if (this.emailService) {
+            await this.emailService.sendTemplatedEmail({
+              template: step.config.template,
+              to: step.config.to,
+              variables: { ...input, ...step.config.variables }
+            });
+          }
+          return { stepId: step.id, status: 'completed', type: step.type };
+        
+        case 'webhook':
+          const response = await fetch(step.config.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input, step: step.id })
+          });
+          return { stepId: step.id, status: 'completed', type: step.type, response: await response.json() };
+        
+        case 'delay':
+          await new Promise(resolve => setTimeout(resolve, step.config.milliseconds || 1000));
+          return { stepId: step.id, status: 'completed', type: step.type };
+        
+        case 'condition':
+          const conditionMet = this.evaluateCondition(
+            input[step.config.field],
+            step.config.operator,
+            step.config.value
+          );
+          return { stepId: step.id, status: conditionMet ? 'completed' : 'skipped', type: step.type };
+        
+        default:
+          return { stepId: step.id, status: 'completed', type: step.type };
+      }
+    } catch (error: any) {
+      return { stepId: step.id, status: 'failed', type: step.type, error: error.message };
+    }
+  }
+
+  private applyFilter(item: any, config: any): boolean {
+    // Simple filter implementation
+    if (config.condition) {
+      return eval(config.condition.replace(/\$\{(\w+)\}/g, (_: any, field: string) => JSON.stringify(item[field])));
+    }
+    return true;
+  }
+
+  private applyAggregation(data: any[], config: any): any[] {
+    // Simple aggregation implementation
+    if (config.groupBy) {
+      const groups = data.reduce((acc, item) => {
+        const key = config.groupBy.map((field: string) => item[field]).join('|');
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(item);
+        return acc;
+      }, {});
+      
+      return Object.entries(groups).map(([key, items]: [string, any]) => ({
+        group: key,
+        count: items.length,
+        items
+      }));
+    }
+    return data;
+  }
+  // Helper methods for automation tools
+  private applyMapping(value: any, config: any): any {
+    // Simple value mapping implementation
+    if (config.mappings && config.mappings[value]) {
+      return config.mappings[value];
+    }
+    return value;
+  }
+
+  private processMetrics(data: any[], metrics: any[]): any {
+    const result: any = {};
+    
+    metrics.forEach(metric => {
+      const alias = metric.alias || `${metric.operation}_${metric.field}`;
+      const values = data.map(item => item[metric.field]).filter(v => v != null);
+      
+      switch (metric.operation) {
+        case 'count':
+          result[alias] = data.length;
+          break;
+        case 'sum':
+          result[alias] = values.reduce((a, b) => a + Number(b), 0);
+          break;
+        case 'avg':
+          result[alias] = values.reduce((a, b) => a + Number(b), 0) / values.length;
+          break;
+        case 'min':
+          result[alias] = Math.min(...values.map(Number));
+          break;
+        case 'max':
+          result[alias] = Math.max(...values.map(Number));
+          break;
+        case 'distinct_count':
+          result[alias] = new Set(values).size;
+          break;
+      }
+    });
+    
+    return result;
+  }
+
+  private processGroupedMetrics(data: any[], metrics: any[], groupBy: string[]): any[] {
+    const groups: any = {};
+    
+    data.forEach(item => {
+      const key = groupBy.map(field => item[field]).join('|');
+      if (!groups[key]) {
+        groups[key] = { items: [], group: {} };
+        groupBy.forEach(field => {
+          groups[key].group[field] = item[field];
+        });
+      }
+      groups[key].items.push(item);
+    });
+    
+    return Object.values(groups).map((group: any) => ({
+      ...group.group,
+      ...this.processMetrics(group.items, metrics)
+    }));
+  }
+
+  private formatAsCSV(data: any): string {
+    if (Array.isArray(data) && data.length > 0) {
+      const headers = Object.keys(data[0]);
+      const rows = data.map(item => headers.map(h => JSON.stringify(item[h])).join(','));
+      return [headers.join(','), ...rows].join('\n');
+    }
+    return JSON.stringify(data);
+  }
+
+  private async formatAsPDF(data: any, title: string): Promise<string> {
+    // Simple PDF formatting - in a real implementation, you'd use a PDF library
+    return `PDF Report: ${title}\n${JSON.stringify(data, null, 2)}`;
   }
 
   async run() {
