@@ -3632,9 +3632,7 @@ class PocketBaseServer {
               content: [{ type: 'text', text: 'Error: Email service configuration required. Set EMAIL_SERVICE or SMTP configuration environment variables.' }],
               isError: true
             };
-          }
-
-          if (!this.emailService) {
+          }          if (!this.emailService) {
             this.emailService = new EmailService(this.pb);
           }
 
@@ -3650,6 +3648,161 @@ class PocketBaseServer {
         }
       }
     );
+
+    // === ADDITIONAL AUTOMATION TOOLS ===
+    // Note: These tools provide advanced automation capabilities
+
+    // Enhanced email sending tool (replacement for old send_email)
+    this.server.tool(
+      'send_email',
+      {
+        to: z.string().email().describe('Recipient email address'),
+        subject: z.string().describe('Email subject'),
+        htmlContent: z.string().optional().describe('HTML email content'),
+        textContent: z.string().optional().describe('Plain text email content'),
+        template: z.string().optional().describe('Email template name'),
+        variables: z.record(z.any()).optional().describe('Template variables'),
+        attachments: z.array(z.object({
+          filename: z.string(),
+          content: z.string(),
+          contentType: z.string().optional()
+        })).optional().describe('Email attachments')
+      },
+      async ({ to, subject, htmlContent, textContent, template, variables, attachments }) => {
+        try {
+          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
+            return {
+              content: [{ type: 'text', text: 'Error: Email configuration (EMAIL_SERVICE or SMTP configuration) is required for email operations' }],
+              isError: true
+            };
+          }
+          
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+          
+          let result;
+          
+          if (template) {
+            // Use template-based sending
+            result = await this.emailService.sendTemplatedEmail({
+              template,
+              to,
+              variables,
+              customSubject: subject
+            });
+          } else {
+            // Use custom email sending
+            result = await this.emailService.sendCustomEmail({
+              to,
+              subject,
+              html: htmlContent || '',
+              text: textContent
+            });
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to send email: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Create email template tool (enhanced version)
+    this.server.tool(
+      'create_email_template',
+      {
+        name: z.string().describe('Template name'),
+        subject: z.string().describe('Email subject template'),
+        htmlContent: z.string().describe('HTML content template'),
+        textContent: z.string().optional().describe('Plain text content template'),
+        variables: z.array(z.string()).optional().describe('Template variables definition')
+      },
+      async ({ name, subject, htmlContent, textContent, variables }) => {
+        try {
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+
+          const template = await this.emailService.createTemplate({
+            name,
+            subject,
+            htmlContent,
+            textContent,
+            variables
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create email template: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // List email templates tool
+    this.server.tool(
+      'list_email_templates',
+      {
+        page: z.number().optional().default(1).describe('Page number'),
+        perPage: z.number().optional().default(50).describe('Records per page'),
+        filter: z.string().optional().describe('Filter templates')
+      },
+      async ({ page, perPage, filter }) => {
+        try {
+          const options: any = {};
+          if (filter) options.filter = filter;
+
+          const templates = await this.pb.collection('email_templates').getList(page, perPage, options);
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(templates, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to list email templates: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Get email logs tool
+    this.server.tool(
+      'get_email_logs',
+      {
+        page: z.number().optional().default(1).describe('Page number'),
+        perPage: z.number().optional().default(50).describe('Records per page'),
+        filter: z.string().optional().describe('Filter email logs')
+      },
+      async ({ page, perPage, filter }) => {
+        try {
+          const options: any = {};
+          if (filter) options.filter = filter;
+
+          const logs = await this.pb.collection('email_logs').getList(page, perPage, options);
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(logs, null, 2) }]
+          };
+        } catch (error: any) {          return {
+            content: [{ type: 'text', text: `Failed to get email logs: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    console.error(`[MCP DEBUG] setupTools completed. Total tools registered.`);
   }
 
   async run() {
