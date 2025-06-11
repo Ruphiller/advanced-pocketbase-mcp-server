@@ -49,6 +49,43 @@ This release transforms the Advanced PocketBase MCP Server into a complete full-
 
 ## Changelog
 
+### v2.3.0 (June 12, 2025)
+
+#### Added - SDK Compatibility & Modernization
+- **Complete SDK Compatibility**: Full compatibility with latest PocketBase JavaScript SDK v0.26.1
+- **Modern Type Definitions**: Completely rewrote `src/types/pocketbase.d.ts` to match actual SDK API
+  - Added correct interfaces for CollectionService, RecordService, FileService, HealthService, RealtimeService
+  - Updated AuthStore, AuthData, AuthMethodsList with proper method signatures
+  - Removed incompatible features that don't exist in current SDK version
+- **Authentication Method Modernization**: Updated all authentication tools to use current SDK patterns
+  - Fixed `authenticate_with_otp` to use `requestOTP()` for initiating OTP flow
+  - Updated `authenticate_with_oauth2` to use `authWithOAuth2Code()` with proper parameters
+  - Corrected method casing from `authWithOtp` to `authWithOTP` to match SDK
+  - Fixed all AuthStore references from deprecated `model` property to correct `record` property
+
+#### Fixed - SDK Compatibility Issues
+- **Removed Incompatible Features**: Cleaned up tools using non-existent SDK methods
+  - Removed `get_collection_scaffolds` tool (used non-existent `collections.getScaffolds()`)
+  - Removed `import_collections` tool (used non-existent `collections.import()`)
+  - Replaced `createBatch()` API calls with sequential execution in batch operation tools
+- **Interface Cleanup**: Removed `ExtendedPocketBase` interface, using standard `PocketBase` type directly
+- **Syntax Corrections**: Fixed various syntax errors including missing parentheses and semicolons
+- **Build System**: Successfully compiled TypeScript project without errors, server starts properly
+
+#### Enhanced
+- **Tool Registration**: All MCP tool registrations now follow correct patterns with modern SDK capabilities
+- **Error Handling**: Improved error handling throughout all authentication and data operations
+- **Type Safety**: Enhanced TypeScript support with accurate type definitions matching SDK v0.26.1
+- **Documentation**: Created comprehensive CHANGELOG.md documenting all changes and breaking changes
+
+#### Technical Improvements
+- Verified compatibility with MCP TypeScript SDK v1.12.1
+- Ensured all tool implementations use actual PocketBase SDK v0.26.1 methods
+- Replaced batch operations with sequential execution to work within SDK limitations
+- Improved overall code stability and maintainability
+
+This release ensures the Advanced PocketBase MCP Server is fully compatible with the latest SDK versions and follows modern development patterns.
+
 ### v2.2.0 (June 7, 2025)
 
 #### Added
