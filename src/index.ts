@@ -52,30 +52,8 @@ interface RequestHandlerExtra {
   [key: string]: any;
 }
 
-// Extend PocketBase types
-interface ExtendedPocketBase extends PocketBase {
-  baseUrl: string;
-  authStore: { // Restore explicit authStore definition
-    isValid: boolean;
-    token: string;
-    model: any;
-    save(token: string, model: any): void;
-    clear(): void;
-    exportToCookie(options?: any): string;
-    loadFromCookie(cookie: string): void;
-  };
-  admins: any; // Add admins collection service type (using 'any' for simplicity)
-  collections: {
-    getList(page?: number, perPage?: number, options?: any): Promise<any>;
-    getOne(id: string): Promise<any>;
-    create(data: any): Promise<any>;
-    update(id: string, data: any): Promise<any>;
-    delete(id: string): Promise<any>;
-  };
-  filter(expr: string, params: Record<string, any>): string;
-  autoCancellation(enable: boolean): void;
-  cancelRequest(key: string): void;
-}
+// Extend PocketBase types - use the standard PocketBase interface
+// No need to extend, just use PocketBase directly
 
 // Schema field type
 interface SchemaField {
@@ -101,8 +79,9 @@ interface SubscriptionEvent {
 
 class PocketBaseServer {
   private server: McpServer;
-  private pb: ExtendedPocketBase;
+  private pb: PocketBase;
   private _customHeaders: Record<string, string> = {};
+  private _realtimeSubscriptions: Map<string, () => void> = new Map();
   private stripeService?: StripeService;
   private emailService?: EmailService;
 
@@ -116,14 +95,12 @@ class PocketBaseServer {
         tools: {},
         prompts: {}
       }
-    });
-
-    // Initialize PocketBase client
+    });    // Initialize PocketBase client
     const url = process.env.POCKETBASE_URL;
     if (!url) {
       throw new Error('POCKETBASE_URL environment variable is required');
     }
-    this.pb = new PocketBase(url) as unknown as ExtendedPocketBase;
+    this.pb = new PocketBase(url);
 
     // Initialize services if environment variables are present
     if (process.env.STRIPE_SECRET_KEY) {
@@ -326,11 +303,10 @@ class PocketBaseServer {
         try {
           return {
             contents: [{
-              uri: uri.href,
-              text: JSON.stringify({
+              uri: uri.href,              text: JSON.stringify({
                 isValid: this.pb.authStore.isValid,
                 token: this.pb.authStore.token,
-                model: this.pb.authStore.model
+                record: this.pb.authStore.record
               }, null, 2)
             }]
           };
@@ -409,12 +385,11 @@ class PocketBaseServer {
         try {
           return {
             content: [{
-              type: 'text',
-              text: JSON.stringify({
+              type: 'text',              text: JSON.stringify({
                 isValid: this.pb.authStore.isValid,
                 token: this.pb.authStore.token,
-                model: this.pb.authStore.model,
-                isAdmin: this.pb.authStore.model?.collectionName === '_superusers'
+                record: this.pb.authStore.record,
+                isAdmin: this.pb.authStore.record?.collectionName === '_superusers'
               }, null, 2)
             }]
           };        } catch (error: any) {
@@ -519,7 +494,7 @@ class PocketBaseServer {
       async ({ name, schema }) => {
         console.error(`[MCP DEBUG] create_collection called with:`, { name, schema });
 
-        if (!this.pb.authStore.isValid || this.pb.authStore.model?.collectionName !== '_superusers') {
+        if (!this.pb.authStore.isValid || this.pb.authStore.record?.collectionName !== '_superusers') {
           return {
             content: [{
               type: 'text',
@@ -753,22 +728,22 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'authenticate_with_oauth2',
       {
         provider: z.string().describe('OAuth2 provider name'),
         code: z.string().describe('Authorization code'),
         codeVerifier: z.string().describe('PKCE code verifier'),
         redirectUrl: z.string().describe('Redirect URL'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        collection: z.string().optional().default('users').describe('Collection name'),
+        createData: z.record(z.any()).optional().describe('Additional user data for new records')
       },
-      async ({ provider, code, codeVerifier, redirectUrl, collection }) => {
+      async ({ provider, code, codeVerifier, redirectUrl, collection, createData = {} }) => {
         try {
+          // Updated method signature for latest PocketBase SDK
           const authData = await this.pb
             .collection(collection)
-            .authWithOAuth2(provider, code, codeVerifier, redirectUrl);
+            .authWithOAuth2Code(provider, code, codeVerifier, redirectUrl, createData);
 
           return {
             content: [{ type: 'text', text: JSON.stringify(authData, null, 2) }]
@@ -780,8 +755,7 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
+    );// Authenticate with OTP (updated for latest SDK)
     this.server.tool(
       'authenticate_with_otp',
       {
@@ -790,13 +764,14 @@ class PocketBaseServer {
       },
       async ({ email, collection }) => {
         try {
-          const result = await this.pb.collection(collection).authWithOtp(email);
+          // Updated method signature for latest PocketBase SDK
+          const result = await this.pb.collection(collection).requestOTP(email);
           return {
             content: [{ type: 'text', text: JSON.stringify({ success: result }, null, 2) }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `OTP authentication failed: ${error.message}` }],
+            content: [{ type: 'text', text: `OTP request failed: ${error.message}` }],
             isError: true
           };
         }
@@ -1754,64 +1729,76 @@ class PocketBaseServer {
         }
       }
     );
-    
-    // Batch operations tool
+      // Batch operations tool - Sequential implementation since batch API is not available
     this.server.tool(
       'execute_batch_operations',
       {
         operations: z.array(z.object({
-          operation: z.enum(['create', 'update', 'delete', 'upsert']).describe('Operation type'),
+          operation: z.enum(['create', 'update', 'delete']).describe('Operation type'),
           collection: z.string().describe('Collection name'),
           id: z.string().optional().describe('Record ID (required for update and delete)'),
-          data: z.record(z.any()).optional().describe('Record data (required for create, update, and upsert)')
-        })).describe('Array of operations to execute in a single transaction')
+          data: z.record(z.any()).optional().describe('Record data (required for create and update)')
+        })).describe('Array of operations to execute sequentially')
       },
       async ({ operations }) => {
+        const results: any[] = [];
+        const errors: any[] = [];
+        
         try {
-          // Create a batch instance
-          // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-          const batch = this.pb.createBatch();
-          
-          // Register operations to the batch
+          // Execute operations sequentially since batch API is not available
           for (const op of operations) {
-            switch (op.operation) {
-              case 'create':
-                if (!op.data) {
-                  throw new Error(`Data is required for create operation on collection ${op.collection}`);
-                }
-                batch.collection(op.collection).create(op.data);
-                break;
+            try {
+              let result;
+              switch (op.operation) {
+                case 'create':
+                  if (!op.data) {
+                    throw new Error(`Data is required for create operation on collection ${op.collection}`);
+                  }
+                  result = await this.pb.collection(op.collection).create(op.data);
+                  break;
+                
+                case 'update':
+                  if (!op.id) {
+                    throw new Error(`ID is required for update operation on collection ${op.collection}`);
+                  }
+                  if (!op.data) {
+                    throw new Error(`Data is required for update operation on collection ${op.collection}`);
+                  }
+                  result = await this.pb.collection(op.collection).update(op.id, op.data);
+                  break;
+                
+                case 'delete':
+                  if (!op.id) {
+                    throw new Error(`ID is required for delete operation on collection ${op.collection}`);
+                  }
+                  result = await this.pb.collection(op.collection).delete(op.id);
+                  break;
+              }
               
-              case 'update':
-                if (!op.id) {
-                  throw new Error(`ID is required for update operation on collection ${op.collection}`);
-                }
-                if (!op.data) {
-                  throw new Error(`Data is required for update operation on collection ${op.collection}`);
-                }
-                batch.collection(op.collection).update(op.id, op.data);
-                break;
+              results.push({
+                operation: op.operation,
+                collection: op.collection,
+                id: op.id,
+                status: 'success',
+                result
+              });
               
-              case 'delete':
-                if (!op.id) {
-                  throw new Error(`ID is required for delete operation on collection ${op.collection}`);
-                }
-                batch.collection(op.collection).delete(op.id);
-                break;
-              
-              case 'upsert':
-                if (!op.data) {
-                  throw new Error(`Data is required for upsert operation on collection ${op.collection}`);
-                }
-                batch.collection(op.collection).upsert(op.data);
-                break;
+            } catch (error: any) {
+              errors.push({
+                operation: op.operation,
+                collection: op.collection,
+                id: op.id,
+                status: 'error',
+                error: error.message
+              });
             }
           }
-            // Send the batch request
-          const result = await batch.send();
-          
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            return {
+            content: [{ type: 'text', text: JSON.stringify({ 
+              results, 
+              errors,
+              note: "Operations executed sequentially since batch API is not available in current PocketBase SDK version"
+            }, null, 2) }]
           };
         } catch (error: any) {
           return {
@@ -1819,7 +1806,8 @@ class PocketBaseServer {
             isError: true
           };
         }
-      }    );
+      }
+    );
     
     // === ADVANCED FEATURES ===
     
@@ -3634,817 +3622,326 @@ class PocketBaseServer {
       }
     );
 
-    // === AUTOMATION TOOLS ===
-    // Note: These tools provide advanced automation capabilities
-
-    // Enhanced email sending tool (replacement for old send_email)
+    // === MODERN POCKETBASE SDK FEATURES ===
+    
+    // Complete OTP Authentication Flow (Latest SDK)
     this.server.tool(
-      'send_email',
+      'complete_otp_authentication',
       {
-        to: z.string().email().describe('Recipient email address'),
-        subject: z.string().describe('Email subject'),
-        htmlContent: z.string().optional().describe('HTML email content'),
-        textContent: z.string().optional().describe('Plain text email content'),
-        template: z.string().optional().describe('Email template name'),
-        variables: z.record(z.any()).optional().describe('Template variables'),
-        attachments: z.array(z.object({
-          filename: z.string(),
-          content: z.string(),
-          contentType: z.string().optional()
-        })).optional().describe('Email attachments')
+        otpId: z.string().describe('OTP ID received from requestOTP'),
+        password: z.string().describe('OTP password from email/SMS'),
+        collection: z.string().optional().default('users').describe('Collection name')
       },
-      async ({ to, subject, htmlContent, textContent, template, variables, attachments }) => {
-        try {
-          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
-            return {
-              content: [{ type: 'text', text: 'Error: Email configuration (EMAIL_SERVICE or SMTP configuration) is required for email operations' }],
-              isError: true
-            };
-          }
-          
-          if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
-          }
-          
-          let result;
-          
-          if (template) {
-            // Use template-based sending
-            result = await this.emailService.sendTemplatedEmail({
-              template,
-              to,
-              variables,
-              customSubject: subject
-            });
-          } else {
-            // Use custom email sending
-            result = await this.emailService.sendCustomEmail({
-              to,
-              subject,
-              html: htmlContent || '',
-              text: textContent
-            });
-          }
-
+      async ({ otpId, password, collection }) => {
+        try {          // Latest PocketBase SDK method for completing OTP auth
+          const authData = await this.pb.collection(collection).authWithOTP(otpId, password);
           return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify(authData, null, 2) }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to send email: ${error.message}` }],
+            content: [{ type: 'text', text: `OTP authentication failed: ${error.message}` }],
             isError: true
           };
         }
       }
     );
 
-    // Create email template tool (enhanced version)
+    // List Auth Methods (Latest SDK)
     this.server.tool(
-      'create_email_template',
+      'list_auth_methods',
       {
-        name: z.string().describe('Template name'),
-        subject: z.string().describe('Email subject template'),
-        htmlContent: z.string().describe('HTML content template'),
-        textContent: z.string().optional().describe('Plain text content template'),
-        variables: z.array(z.string()).optional().describe('Template variables definition')
+        collection: z.string().optional().default('users').describe('Collection name')
       },
-      async ({ name, subject, htmlContent, textContent, variables }) => {
+      async ({ collection }) => {
         try {
-          if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
-          }
-
-          const template = await this.emailService.createTemplate({
-            name,
-            subject,
-            htmlContent,
-            textContent,
-            variables
-          });
-
+          const methods = await this.pb.collection(collection).listAuthMethods();
           return {
-            content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify(methods, null, 2) }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to create email template: ${error.message}` }],
+            content: [{ type: 'text', text: `Failed to list auth methods: ${error.message}` }],
             isError: true
           };
         }
       }
-    );
-
-    // List email templates tool
+    );    // Modern Batch Operations - Sequential implementation
     this.server.tool(
-      'list_email_templates',
+      'create_batch_request',
       {
-        page: z.number().optional().default(1).describe('Page number'),
-        perPage: z.number().optional().default(50).describe('Records per page'),
-        filter: z.string().optional().describe('Filter templates')
+        operations: z.array(z.object({
+          method: z.enum(['POST', 'PATCH', 'DELETE']).describe('HTTP method'),
+          collection: z.string().describe('Collection name'),
+          recordId: z.string().optional().describe('Record ID (for PATCH/DELETE)'),
+          body: z.record(z.any()).optional().describe('Request body (for POST/PATCH)')
+        })).describe('Array of batch operations')
       },
-      async ({ page, perPage, filter }) => {
+      async ({ operations }) => {
+        const results: any[] = [];
+        const errors: any[] = [];
+        
         try {
-          const options: any = {};
-          if (filter) options.filter = filter;
-
-          const templates = await this.pb.collection('email_templates').getList(page, perPage, options);
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(templates, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to list email templates: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );    // Get email logs tool
-    this.server.tool(
-      'get_email_logs',
-      {
-        page: z.number().optional().default(1).describe('Page number'),
-        perPage: z.number().optional().default(50).describe('Records per page'),
-        filter: z.string().optional().describe('Filter email logs')
-      },
-      async ({ page, perPage, filter }) => {
-        try {
-          const options: any = {};
-          if (filter) options.filter = filter;
-
-          const logs = await this.pb.collection('email_logs').getList(page, perPage, options);
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(logs, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to get email logs: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // === AUTOMATION & WORKFLOW TOOLS ===
-    // Advanced automation tools for workflow management and business process automation
-
-    // Webhook management tool
-    this.server.tool(
-      'create_webhook',
-      {
-        name: z.string().describe('Webhook name'),
-        url: z.string().url().describe('Webhook URL endpoint'),
-        events: z.array(z.string()).describe('Events to trigger webhook (e.g., ["create", "update", "delete"])'),
-        collection: z.string().describe('Collection to monitor'),
-        active: z.boolean().default(true).describe('Whether webhook is active'),
-        headers: z.record(z.string()).optional().describe('Custom headers to send'),
-        secret: z.string().optional().describe('Secret for webhook verification')
-      },
-      async ({ name, url, events, collection, active, headers, secret }) => {
-        try {
-          const webhook = await this.pb.collection('webhooks').create({
-            name,
-            url,
-            events,
-            collection,
-            active,
-            headers: headers || {},
-            secret,
-            created: new Date().toISOString(),
-            updated: new Date().toISOString()
-          });
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(webhook, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to create webhook: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Trigger webhook manually
-    this.server.tool(
-      'trigger_webhook',
-      {
-        webhookId: z.string().describe('Webhook ID'),
-        payload: z.record(z.any()).describe('Data to send to webhook'),
-        testMode: z.boolean().default(false).describe('Test mode (logs response without persisting)')
-      },
-      async ({ webhookId, payload, testMode }) => {
-        try {
-          const webhook = await this.pb.collection('webhooks').getOne(webhookId);
-          
-          const response = await fetch(webhook.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...webhook.headers,
-              ...(webhook.secret && { 'X-Webhook-Secret': webhook.secret })
-            },
-            body: JSON.stringify(payload)
-          });
-
-          const responseData = {
-            status: response.status,
-            statusText: response.statusText,
-            headers: Object.fromEntries(response.headers.entries()),
-            body: await response.text()
-          };
-
-          if (!testMode) {
-            await this.pb.collection('webhook_logs').create({
-              webhookId,
-              payload,
-              response: responseData,
-              success: response.ok,
-              timestamp: new Date().toISOString()
-            });
-          }
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(responseData, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to trigger webhook: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Scheduled task management
-    this.server.tool(
-      'create_scheduled_task',
-      {
-        name: z.string().describe('Task name'),
-        schedule: z.string().describe('Cron expression (e.g., "0 9 * * 1-5" for weekdays at 9am)'),
-        action: z.enum(['email', 'webhook', 'database_cleanup', 'custom']).describe('Action type'),
-        config: z.record(z.any()).describe('Task configuration'),
-        active: z.boolean().default(true).describe('Whether task is active'),
-        timezone: z.string().default('UTC').describe('Timezone for schedule')
-      },
-      async ({ name, schedule, action, config, active, timezone }) => {
-        try {
-          const task = await this.pb.collection('scheduled_tasks').create({
-            name,
-            schedule,
-            action,
-            config,
-            active,
-            timezone,
-            lastRun: null,
-            nextRun: null, // Would be calculated by scheduler
-            created: new Date().toISOString(),
-            updated: new Date().toISOString()
-          });
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(task, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to create scheduled task: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Data transformation pipeline
-    this.server.tool(
-      'create_data_pipeline',
-      {
-        name: z.string().describe('Pipeline name'),
-        sourceCollection: z.string().describe('Source collection'),
-        targetCollection: z.string().describe('Target collection'),
-        transformations: z.array(z.object({
-          field: z.string(),
-          operation: z.enum(['map', 'filter', 'aggregate', 'join', 'custom']),
-          config: z.record(z.any())
-        })).describe('Data transformation steps'),
-        schedule: z.string().optional().describe('Cron schedule for automatic execution'),
-        active: z.boolean().default(true).describe('Whether pipeline is active')
-      },
-      async ({ name, sourceCollection, targetCollection, transformations, schedule, active }) => {
-        try {
-          const pipeline = await this.pb.collection('data_pipelines').create({
-            name,
-            sourceCollection,
-            targetCollection,
-            transformations,
-            schedule,
-            active,
-            lastRun: null,
-            status: 'created',
-            created: new Date().toISOString(),
-            updated: new Date().toISOString()
-          });
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(pipeline, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to create data pipeline: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Execute data pipeline
-    this.server.tool(
-      'execute_data_pipeline',
-      {
-        pipelineId: z.string().describe('Pipeline ID'),
-        dryRun: z.boolean().default(false).describe('Dry run mode (preview without executing)')
-      },
-      async ({ pipelineId, dryRun }) => {
-        try {
-          const pipeline = await this.pb.collection('data_pipelines').getOne(pipelineId);
-          
-          // Get source data
-          const sourceData = await this.pb.collection(pipeline.sourceCollection).getFullList();
-          
-          // Apply transformations
-          let transformedData = sourceData;
-          const executionLog = [];
-          
-          for (const transformation of pipeline.transformations) {
-            const stepLog = {
-              step: transformation.operation,
-              field: transformation.field,
-              inputCount: transformedData.length,
-              outputCount: 0,
-              config: transformation.config
-            };
-            
-            switch (transformation.operation) {
-              case 'map':
-                transformedData = transformedData.map(item => ({
-                  ...item,
-                  [transformation.field]: this.applyMapping(item[transformation.field], transformation.config)
-                }));
-                break;
-              case 'filter':
-                transformedData = transformedData.filter(item => 
-                  this.applyFilter(item, transformation.config)
-                );
-                break;
-              case 'aggregate':
-                transformedData = this.applyAggregation(transformedData, transformation.config);
-                break;
+          // Execute operations sequentially since batch API is not available
+          for (const { method, collection, recordId, body } of operations) {
+            try {
+              let result;
+              switch (method) {
+                case 'POST':
+                  result = await this.pb.collection(collection).create(body || {});
+                  break;
+                case 'PATCH':
+                  if (recordId) {
+                    result = await this.pb.collection(collection).update(recordId, body || {});
+                  }
+                  break;
+                case 'DELETE':
+                  if (recordId) {
+                    result = await this.pb.collection(collection).delete(recordId);
+                  }
+                  break;
+              }
+              
+              results.push({
+                method,
+                collection,
+                recordId,
+                status: 'success',
+                result
+              });
+              
+            } catch (error: any) {
+              errors.push({
+                method,
+                collection,
+                recordId,
+                status: 'error',
+                error: error.message
+              });
             }
-            
-            stepLog.outputCount = transformedData.length;
-            executionLog.push(stepLog);
           }
-          
-          if (!dryRun) {
-            // Insert transformed data
-            const results = [];
-            for (const item of transformedData) {
-              const result = await this.pb.collection(pipeline.targetCollection).create(item);
-              results.push(result);
-            }
-            
-            // Update pipeline last run
-            await this.pb.collection('data_pipelines').update(pipelineId, {
-              lastRun: new Date().toISOString(),
-              status: 'completed'
-            });
-            
-            return {
-              content: [{ type: 'text', text: JSON.stringify({ 
-                executionLog, 
-                processedRecords: transformedData.length,
-                insertedRecords: results.length 
-              }, null, 2) }]
-            };
-          } else {
-            // Dry run - just validate steps
-            const results = transformedData.map(item => {
-              return this.applyMapping(item, pipeline.transformations);
-            });
-            
-            return {
-              content: [{ type: 'text', text: JSON.stringify({ 
-                executionLog, 
-                previewData: results.slice(0, 5),
-                totalRecords: results.length,
-                dryRun: true 
-              }, null, 2) }]
-            };
-          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ 
+              results,
+              errors,
+              note: "Operations executed sequentially since batch API is not available in current PocketBase SDK version"
+            }, null, 2) }]
+          };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to execute data pipeline: ${error.message}` }],
+            content: [{ type: 'text', text: `Batch operation failed: ${error.message}` }],
             isError: true
           };
         }
       }
     );
 
-    // Business rule engine
+    // File URL Generation (Latest SDK)
     this.server.tool(
-      'create_business_rule',
-      {
-        name: z.string().describe('Rule name'),
-        collection: z.string().describe('Collection to apply rule to'),
-        trigger: z.enum(['create', 'update', 'delete', 'schedule']).describe('When to trigger rule'),
-        conditions: z.array(z.object({
-          field: z.string(),
-          operator: z.enum(['equals', 'not_equals', 'greater_than', 'less_than', 'contains', 'in', 'not_in']),
-          value: z.any()
-        })).describe('Conditions that must be met'),
-        actions: z.array(z.object({
-          type: z.enum(['email', 'webhook', 'update_field', 'create_record', 'custom']),
-          config: z.record(z.any())
-        })).describe('Actions to execute'),
-        active: z.boolean().default(true).describe('Whether rule is active'),
-        priority: z.number().default(100).describe('Rule priority (lower = higher priority)')
-      },
-      async ({ name, collection, trigger, conditions, actions, active, priority }) => {
-        try {
-          const rule = await this.pb.collection('business_rules').create({
-            name,
-            collection,
-            trigger,
-            conditions,
-            actions,
-            active,
-            priority,
-            executionCount: 0,
-            lastExecuted: null,
-            created: new Date().toISOString(),
-            updated: new Date().toISOString()
-          });
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(rule, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to create business rule: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Evaluate business rules
-    this.server.tool(
-      'evaluate_business_rules',
+      'get_file_url',
       {
         collection: z.string().describe('Collection name'),
         recordId: z.string().describe('Record ID'),
-        trigger: z.enum(['create', 'update', 'delete']).describe('Trigger event'),
-        testMode: z.boolean().default(false).describe('Test mode (evaluate without executing actions)')
+        filename: z.string().describe('File name'),
+        thumb: z.string().optional().describe('Thumbnail size (e.g., "100x100")'),
+        download: z.boolean().optional().describe('Force download')
       },
-      async ({ collection, recordId, trigger, testMode }) => {
+      async ({ collection, recordId, filename, thumb, download }) => {
         try {
-          // Get record data
           const record = await this.pb.collection(collection).getOne(recordId);
+          const options: any = {};
+          if (thumb) options.thumb = thumb;
+          if (download) options.download = download;
           
-          // Get applicable rules
-          const rules = await this.pb.collection('business_rules').getList(1, 100, {
-            filter: `collection = "${collection}" && trigger = "${trigger}" && active = true`,
-            sort: 'priority'
-          });
-          
-          const evaluationResults = [];
-          
-          for (const rule of rules.items) {            const ruleResult = {
-              ruleId: rule.id,
-              ruleName: rule.name,
-              conditionsMet: true,
-              actionsExecuted: [] as any[],
-              errors: [] as string[]
-            };
-            
-            // Evaluate conditions
-            for (const condition of rule.conditions) {
-              const fieldValue = record[condition.field];
-              const conditionMet = this.evaluateCondition(fieldValue, condition.operator, condition.value);
-              
-              if (!conditionMet) {
-                ruleResult.conditionsMet = false;
-                break;
-              }
-            }
-            
-            // Execute actions if conditions met
-            if (ruleResult.conditionsMet && !testMode) {
-              for (const action of rule.actions) {
-                try {
-                  const actionResult = await this.executeRuleAction(action, record, collection);
-                  ruleResult.actionsExecuted.push(actionResult);
-                } catch (error: any) {
-                  ruleResult.errors.push(`Action ${action.type} failed: ${error.message}`);
-                }
-              }
-              
-              // Update rule execution count
-              await this.pb.collection('business_rules').update(rule.id, {
-                executionCount: rule.executionCount + 1,
-                lastExecuted: new Date().toISOString()
-              });
-            }
-            
-            evaluationResults.push(ruleResult);
-          }
-          
+          const url = this.pb.files.getURL(record, filename, options);
           return {
-            content: [{ type: 'text', text: JSON.stringify({ 
-              recordId, 
-              trigger, 
-              testMode,
-              rulesEvaluated: evaluationResults.length,
-              results: evaluationResults 
-            }, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify({ url }, null, 2) }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to evaluate business rules: ${error.message}` }],
+            content: [{ type: 'text', text: `Failed to get file URL: ${error.message}` }],
             isError: true
           };
         }
       }
     );
 
-    // Workflow management
+    // Private File Token (Latest SDK)
     this.server.tool(
-      'create_workflow',
-      {
-        name: z.string().describe('Workflow name'),
-        description: z.string().optional().describe('Workflow description'),
-        steps: z.array(z.object({
-          id: z.string(),
-          name: z.string(),
-          type: z.enum(['approval', 'email', 'webhook', 'delay', 'condition', 'custom']),
-          config: z.record(z.any()),
-          dependencies: z.array(z.string()).optional()
-        })).describe('Workflow steps'),
-        triggers: z.array(z.object({
-          type: z.enum(['manual', 'record_created', 'record_updated', 'webhook', 'schedule']),
-          config: z.record(z.any())
-        })).describe('Workflow triggers'),
-        active: z.boolean().default(true).describe('Whether workflow is active')
-      },
-      async ({ name, description, steps, triggers, active }) => {
+      'get_file_token',
+      {},
+      async () => {
         try {
-          const workflow = await this.pb.collection('workflows').create({
-            name,
-            description,
-            steps,
-            triggers,
-            active,
-            executionCount: 0,
-            lastExecuted: null,
-            created: new Date().toISOString(),
-            updated: new Date().toISOString()
-          });
-
+          const token = await this.pb.files.getToken();
           return {
-            content: [{ type: 'text', text: JSON.stringify(workflow, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify({ token }, null, 2) }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to create workflow: ${error.message}` }],
+            content: [{ type: 'text', text: `Failed to get file token: ${error.message}` }],
             isError: true
           };
         }
       }
     );
 
-    // Execute workflow
+    // Health Check (Latest SDK)
     this.server.tool(
-      'execute_workflow',
-      {
-        workflowId: z.string().describe('Workflow ID'),
-        input: z.record(z.any()).optional().describe('Input data for workflow'),
-        dryRun: z.boolean().default(false).describe('Dry run mode')
-      },
-      async ({ workflowId, input, dryRun }) => {
+      'health_check',
+      {},
+      async () => {
         try {
-          const workflow = await this.pb.collection('workflows').getOne(workflowId);
-          
-          // Create workflow instance
-          const instance = await this.pb.collection('workflow_instances').create({
-            workflowId,
-            status: 'running',
-            input: input || {},
-            currentStep: 0,
-            startTime: new Date().toISOString(),
-            endTime: null,
-            output: {},
-            logs: []
-          });          const executionResults = {
-            instanceId: instance.id,
-            status: 'running',
-            steps: [] as any[],
-            dryRun
-          };
-
-          if (!dryRun) {
-            // Execute workflow steps
-            for (let i = 0; i < workflow.steps.length; i++) {
-              const step = workflow.steps[i];
-              const stepResult = await this.executeWorkflowStep(step, instance, input || {});
-              executionResults.steps.push(stepResult);
-              
-              if (stepResult.status === 'failed') {
-                break;
-              }
-            }
-            
-            // Update workflow execution count
-            await this.pb.collection('workflows').update(workflowId, {
-              executionCount: workflow.executionCount + 1,
-              lastExecuted: new Date().toISOString()
-            });
-          } else {
-            // Dry run - just validate steps
-            for (const step of workflow.steps) {
-              executionResults.steps.push({
-                stepId: step.id,
-                name: step.name,
-                type: step.type,
-                status: 'simulated',
-                config: step.config
-              });
-            }
-          }
-
+          const health = await this.pb.health.check();
           return {
-            content: [{ type: 'text', text: JSON.stringify(executionResults, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify(health, null, 2) }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to execute workflow: ${error.message}` }],
+            content: [{ type: 'text', text: `Health check failed: ${error.message}` }],
             isError: true
           };
         }
       }
     );
 
-    // Advanced data aggregation and reporting
+    // External Auth Management (Latest SDK)
     this.server.tool(
-      'create_report',
+      'list_external_auths',
       {
-        name: z.string().describe('Report name'),
-        collection: z.string().describe('Collection to report on'),
-        metrics: z.array(z.object({
-          field: z.string(),
-          operation: z.enum(['count', 'sum', 'avg', 'min', 'max', 'distinct_count']),
-          alias: z.string().optional()
-        })).describe('Metrics to calculate'),
-        groupBy: z.array(z.string()).optional().describe('Fields to group by'),
-        filters: z.array(z.object({
-          field: z.string(),
-          operator: z.string(),
-          value: z.any()
-        })).optional().describe('Report filters'),
-        dateRange: z.object({
-          field: z.string(),
-          start: z.string().optional(),
-          end: z.string().optional()
-        }).optional().describe('Date range filter'),
-        schedule: z.string().optional().describe('Cron schedule for automatic generation')
+        recordId: z.string().describe('Record ID'),
+        collection: z.string().optional().default('users').describe('Collection name')
       },
-      async ({ name, collection, metrics, groupBy, filters, dateRange, schedule }) => {
+      async ({ recordId, collection }) => {
         try {
-          const report = await this.pb.collection('reports').create({
-            name,
-            collection,
-            metrics,
-            groupBy: groupBy || [],
-            filters: filters || [],
-            dateRange,
-            schedule,
-            lastGenerated: null,
-            created: new Date().toISOString(),
-            updated: new Date().toISOString()
-          });
-
+          const externalAuths = await this.pb.collection(collection).listExternalAuths(recordId);
           return {
-            content: [{ type: 'text', text: JSON.stringify(report, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify(externalAuths, null, 2) }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to create report: ${error.message}` }],
+            content: [{ type: 'text', text: `Failed to list external auths: ${error.message}` }],
             isError: true
           };
         }
       }
     );
 
-    // Generate report
+    // Unlink External Auth (Latest SDK)
     this.server.tool(
-      'generate_report',
+      'unlink_external_auth',
       {
-        reportId: z.string().describe('Report ID'),
-        format: z.enum(['json', 'csv', 'pdf']).default('json').describe('Output format'),
-        email: z.string().email().optional().describe('Email address to send report to')
+        recordId: z.string().describe('Record ID'),
+        provider: z.string().describe('OAuth2 provider name'),
+        collection: z.string().optional().default('users').describe('Collection name')
       },
-      async ({ reportId, format, email }) => {
+      async ({ recordId, provider, collection }) => {
         try {
-          const report = await this.pb.collection('reports').getOne(reportId);
-          
-          // Build query options
-          let queryOptions: any = {};
-          
-          if (report.filters && report.filters.length > 0) {
-            const filterStrings = report.filters.map((f: any) => `${f.field} ${f.operator} ${JSON.stringify(f.value)}`);
-            queryOptions.filter = filterStrings.join(' && ');
-          }
-          
-          if (report.dateRange) {
-            const dateFilter = [];
-            if (report.dateRange.start) {
-              dateFilter.push(`${report.dateRange.field} >= "${report.dateRange.start}"`);
-            }
-            if (report.dateRange.end) {
-              dateFilter.push(`${report.dateRange.field} <= "${report.dateRange.end}"`);
-            }
-            if (dateFilter.length > 0) {
-              queryOptions.filter = queryOptions.filter ? 
-                `${queryOptions.filter} && (${dateFilter.join(' && ')})` : 
-                dateFilter.join(' && ');
-            }
-          }
-          
-          // Get data
-          const data = await this.pb.collection(report.collection).getFullList(queryOptions);
-          
-          // Process metrics and grouping
-          let reportData;
-          if (report.groupBy && report.groupBy.length > 0) {
-            reportData = this.processGroupedMetrics(data, report.metrics, report.groupBy);
-          } else {
-            reportData = this.processMetrics(data, report.metrics);
-          }
-          
-          // Format output
-          let output;
-          switch (format) {
-            case 'csv':
-              output = this.formatAsCSV(reportData);
-              break;
-            case 'pdf':
-              output = await this.formatAsPDF(reportData, report.name);
-              break;
-            default:
-              output = JSON.stringify(reportData, null, 2);
-          }
-          
-          // Save report instance
-          const reportInstance = await this.pb.collection('report_instances').create({
-            reportId,
-            data: reportData,
-            format,
-            generatedAt: new Date().toISOString(),
-            recordCount: Array.isArray(reportData) ? reportData.length : 1
-          });
-          
-          // Update report last generated
-          await this.pb.collection('reports').update(reportId, {
-            lastGenerated: new Date().toISOString()
-          });
-          
-          // Email if requested
-          if (email && this.emailService) {
-            await this.emailService.sendCustomEmail({
-              to: email,
-              subject: `Report: ${report.name}`,
-              html: `<h2>Report: ${report.name}</h2><pre>${output}</pre>`,
-              text: `Report: ${report.name}\n\n${output}`
-            });
-          }
-          
+          await this.pb.collection(collection).unlinkExternalAuth(recordId, provider);
           return {
-            content: [{ type: 'text', text: JSON.stringify({ 
-              reportInstanceId: reportInstance.id,
-              data: reportData,
-              format,
-              emailSent: !!email
-            }, null, 2) }]
+            content: [{ type: 'text', text: `Successfully unlinked ${provider} from record ${recordId}` }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to generate report: ${error.message}` }],
+            content: [{ type: 'text', text: `Failed to unlink external auth: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Improved Realtime Subscriptions with Latest SDK patterns
+    this.server.tool(
+      'realtime_subscribe',
+      {
+        collection: z.string().describe('Collection name'),
+        topic: z.string().optional().default('*').describe('Topic to subscribe to (* for all records, or specific record ID)'),
+        filter: z.string().optional().describe('Filter expression for subscription')
+      },
+      async ({ collection, topic, filter }) => {
+        try {
+          const options: any = {};
+          if (filter) options.filter = filter;
+
+          // Modern realtime subscription with latest SDK
+          const unsubscribe = await this.pb.collection(collection).subscribe(topic, (data: any) => {
+            console.log(`[Realtime ${collection}/${topic}]:`, JSON.stringify(data, null, 2));
+          }, options);
+
+          // Store unsubscribe function for later cleanup
+          this._realtimeSubscriptions = this._realtimeSubscriptions || new Map();
+          const key = `${collection}:${topic}`;
+          this._realtimeSubscriptions.set(key, unsubscribe);
+
+          return {
+            content: [{ type: 'text', text: `Successfully subscribed to ${collection}/${topic}. Events will be logged to server console. Use 'realtime_unsubscribe' to stop.` }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to subscribe: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Realtime Unsubscribe (Latest SDK)
+    this.server.tool(
+      'realtime_unsubscribe',
+      {
+        collection: z.string().describe('Collection name'),
+        topic: z.string().optional().default('*').describe('Topic to unsubscribe from')
+      },
+      async ({ collection, topic }) => {
+        try {
+          await this.pb.collection(collection).unsubscribe(topic);
+          
+          // Clean up stored subscription
+          if (this._realtimeSubscriptions) {
+            const key = `${collection}:${topic}`;
+            this._realtimeSubscriptions.delete(key);
+          }
+
+          return {
+            content: [{ type: 'text', text: `Successfully unsubscribed from ${collection}/${topic}` }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to unsubscribe: ${error.message}` }],
             isError: true
           };
         }
       }    );
 
-    console.error(`[MCP DEBUG] setupTools completed with automation tools. Total tools registered.`);
+    // Enhanced Filter Builder with Latest SDK patterns
+    this.server.tool(
+      'build_safe_filter',
+      {
+        expression: z.string().describe('Filter expression with placeholders like {:name}'),
+        params: z.record(z.any()).describe('Parameter values to safely bind')
+      },
+      async ({ expression, params }) => {
+        try {
+          // Use the safe filter builder from latest SDK
+          const filter = this.pb.filter(expression, params);
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ 
+              expression, 
+              params, 
+              safeFilter: filter,
+              note: "This filter is safe from injection attacks"
+            }, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to build filter: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === END MODERN POCKETBASE SDK FEATURES ===
   }
 
   // Utility methods for automation features
