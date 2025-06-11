@@ -99,7 +99,6 @@ interface SubscriptionEvent {
 	record: RecordModel;
 }
 
-
 class PocketBaseServer {
   private server: McpServer;
   private pb: ExtendedPocketBase;
@@ -343,9 +342,7 @@ class PocketBaseServer {
   }
 
   private setupTools() {
-    console.error('[MCP DEBUG] Setting up tools...');
-    
-    // Simple test tool
+    console.error('[MCP DEBUG] Setting up tools...');    // Simple test tool
     const testTool = this.server.tool(
       'test_tool',
       {},
@@ -366,9 +363,7 @@ class PocketBaseServer {
       console.error(`[MCP DEBUG] Tools through API: ${JSON.stringify(toolNames)}`);
     } catch (error) {
       console.error(`[MCP DEBUG] Error accessing tools through API: ${error}`);
-    }
-    
-    // Diagnostic tool to list all registered tool names
+    }    // Diagnostic tool to list all registered tool names
     this.server.tool(
       'list_registered_tools',
       {},
@@ -383,9 +378,7 @@ class PocketBaseServer {
           }]
         };
       }
-    );
-
-    // Server info tool
+    );    // Server info tool
     this.server.tool(
       'get_server_info',
       {},
@@ -408,9 +401,7 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Auth info tool
+    );// Auth info tool
     this.server.tool(
       'get_auth_info',
       {},
@@ -426,23 +417,20 @@ class PocketBaseServer {
                 isAdmin: this.pb.authStore.model?.collectionName === '_superusers'
               }, null, 2)
             }]
-          };
-        } catch (error: any) {
+          };        } catch (error: any) {
           return {
             content: [{ type: 'text', text: `Failed to get auth info: ${error.message}` }],
             isError: true
           };
         }
       }
-    );
-
-    // New tool to list all collections
+    );// New tool to list all collections
     this.server.tool(
       'list_collections',
       {
         includeSystem: z.boolean().optional().default(false).describe('Whether to include system collections')
       },
-      async ({ includeSystem }) => {
+      async ({ includeSystem }: { includeSystem: boolean }) => {
         try {
           // Try to get collections without authentication first
           try {
@@ -488,30 +476,26 @@ class PocketBaseServer {
                 text: JSON.stringify(discoveredCollections, null, 2)
               }]
             };
-          }
-        } catch (error: any) {
+          }        } catch (error: any) {
           return {
             content: [{ type: 'text', text: `Failed to list collections: ${error.message}` }],
             isError: true
           };
         }
       }
-    );
-
-    // Record management tools
+    );// Record management tools
     this.server.tool(
       'create_record',
       {
         collection: z.string().describe('Collection name'),
         data: z.record(z.any()).describe('Record data')
       },
-      async ({ collection, data }) => {
+      async ({ collection, data }: { collection: string; data: Record<string, any> }) => {
         try {
           const result = await this.pb.collection(collection).create(data);
           return {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-          };
-        } catch (error: any) {
+          };        } catch (error: any) {
           return {
             content: [{ type: 'text', text: `Failed to create record: ${error.message}` }],
             isError: true
@@ -4043,16 +4027,21 @@ class PocketBaseServer {
                 insertedRecords: results.length 
               }, null, 2) }]
             };
+          } else {
+            // Dry run - just validate steps
+            const results = transformedData.map(item => {
+              return this.applyMapping(item, pipeline.transformations);
+            });
+            
+            return {
+              content: [{ type: 'text', text: JSON.stringify({ 
+                executionLog, 
+                previewData: results.slice(0, 5),
+                totalRecords: results.length,
+                dryRun: true 
+              }, null, 2) }]
+            };
           }
-          
-          return {
-            content: [{ type: 'text', text: JSON.stringify({ 
-              executionLog, 
-              previewData: transformedData.slice(0, 5),
-              totalRecords: transformedData.length,
-              dryRun: true 
-            }, null, 2) }]
-          };
         } catch (error: any) {
           return {
             content: [{ type: 'text', text: `Failed to execute data pipeline: ${error.message}` }],
@@ -4453,8 +4442,9 @@ class PocketBaseServer {
             isError: true
           };
         }
-      }
-    );    console.error(`[MCP DEBUG] setupTools completed with automation tools. Total tools registered.`);
+      }    );
+
+    console.error(`[MCP DEBUG] setupTools completed with automation tools. Total tools registered.`);
   }
 
   // Utility methods for automation features
