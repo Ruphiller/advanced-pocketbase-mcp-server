@@ -1953,46 +1953,55 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
+    );    // === STRIPE PAYMENT PROCESSING TOOLS ===
+    // Note: These tools are always registered for discovery, but require STRIPE_SECRET_KEY at runtime
+    
     // Stripe Product Management
-    if (this.stripeService) {
-      this.server.tool(
-        'stripe_create_product',
-        {
-          name: z.string().describe('Product name'),
-          description: z.string().optional().describe('Product description'),
-          price: z.number().describe('Price in cents'),
-          currency: z.string().default('usd').describe('Currency code'),
-          recurring: z.boolean().optional().describe('Is this a subscription?'),
-          interval: z.enum(['month', 'year', 'week', 'day']).optional().describe('Billing interval for subscriptions'),
-          metadata: z.record(z.any()).optional().describe('Additional metadata')
-        },
-        async ({ name, description, price, currency, recurring, interval, metadata }) => {
-          try {
-            const product = await this.stripeService!.createProduct({
-              name,
-              description,
-              price,
-              currency,
-              recurring,
-              interval,
-              metadata
-            });
-
+    this.server.tool(
+      'stripe_create_product',
+      {
+        name: z.string().describe('Product name'),
+        description: z.string().optional().describe('Product description'),
+        price: z.number().describe('Price in cents'),
+        currency: z.string().default('usd').describe('Currency code'),
+        recurring: z.boolean().optional().describe('Is this a subscription?'),
+        interval: z.enum(['month', 'year', 'week', 'day']).optional().describe('Billing interval for subscriptions'),
+        metadata: z.record(z.any()).optional().describe('Additional metadata')
+      },
+      async ({ name, description, price, currency, recurring, interval, metadata }) => {
+        try {
+          if (!process.env.STRIPE_SECRET_KEY) {
             return {
-              content: [{ type: 'text', text: JSON.stringify(product, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to create product: ${error.message}` }],
+              content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
               isError: true
             };
           }
-        }
-      );
+          
+          if (!this.stripeService) {
+            this.stripeService = new StripeService(this.pb);
+          }
+          
+          const product = await this.stripeService.createProduct({
+            name,
+            description,
+            price,
+            currency,
+            recurring,
+            interval,
+            metadata
+          });
 
-      this.server.tool(
+          return {
+            content: [{ type: 'text', text: JSON.stringify(product, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create product: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );      this.server.tool(
         'stripe_create_customer',
         {
           email: z.string().email().describe('Customer email'),
@@ -2002,7 +2011,18 @@ class PocketBaseServer {
         },
         async ({ email, name, userId, metadata }) => {
           try {
-            const customer = await this.stripeService!.createCustomer({
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
+            
+            if (!this.stripeService) {
+              this.stripeService = new StripeService(this.pb);
+            }
+            
+            const customer = await this.stripeService.createCustomer({
               email,
               name,
               userId,
@@ -2273,50 +2293,58 @@ class PocketBaseServer {
               isError: true
             };
           }
-        }
-      );
-    }
+        }      );
 
     // === LATEST STRIPE 2025 FEATURES ===
+    // Note: These tools are always registered for discovery, but require STRIPE_SECRET_KEY at runtime
     
-    if (this.stripeService) {
-      // Treasury (for embedded finance)
-      this.server.tool(
-        'stripe_create_treasury_financial_account',
-        {
-          supportedCurrencies: z.array(z.string()).describe('Supported currencies for the account'),
-          countryCode: z.string().describe('Country code for compliance'),
-          metadata: z.record(z.any()).optional().describe('Additional metadata')
-        },
-        async ({ supportedCurrencies, countryCode, metadata }) => {
-          try {
-            // Note: This requires Treasury enabled on your Stripe account
-            const response = await fetch('https://api.stripe.com/v1/treasury/financial_accounts', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-                'Content-Type': 'application/x-www-form-urlencoded',
-              },
-              body: new URLSearchParams({
-                'supported_currencies[]': supportedCurrencies.join(','),
-                'country': countryCode,
-                ...Object.fromEntries(Object.entries(metadata || {}).map(([k, v]) => [`metadata[${k}]`, String(v)]))
-              }),
-            });
-
-            const account = await response.json();
-
+    // Treasury (for embedded finance)
+    this.server.tool(
+      'stripe_create_treasury_financial_account',
+      {
+        supportedCurrencies: z.array(z.string()).describe('Supported currencies for the account'),
+        countryCode: z.string().describe('Country code for compliance'),
+        metadata: z.record(z.any()).optional().describe('Additional metadata')
+      },      async ({ supportedCurrencies, countryCode, metadata }: {
+        supportedCurrencies: string[];
+        countryCode: string;
+        metadata?: Record<string, any>;
+      }) => {
+        try {
+          if (!process.env.STRIPE_SECRET_KEY) {
             return {
-              content: [{ type: 'text', text: JSON.stringify(account, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to create treasury financial account: ${error.message}` }],
+              content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
               isError: true
             };
           }
+          
+          // Note: This requires Treasury enabled on your Stripe account
+          const response = await fetch('https://api.stripe.com/v1/treasury/financial_accounts', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              'supported_currencies[]': supportedCurrencies.join(','),
+              'country': countryCode,
+              ...Object.fromEntries(Object.entries(metadata || {}).map(([k, v]) => [`metadata[${k}]`, String(v)]))
+            }),
+          });
+
+          const account = await response.json();
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(account, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create treasury financial account: ${error.message}` }],
+            isError: true
+          };
         }
-      );
+      }
+    );
 
       // Climate - Carbon removal orders (Stripe Climate)
       this.server.tool(
@@ -2326,9 +2354,19 @@ class PocketBaseServer {
           currency: z.string().default('usd').describe('Currency'),
           beneficiary: z.string().optional().describe('Beneficiary of the carbon removal'),
           metadata: z.record(z.any()).optional().describe('Additional metadata')
-        },
-        async ({ amount, currency, beneficiary, metadata }) => {
+        },        async ({ amount, currency, beneficiary, metadata }: {
+          amount: number;
+          currency: string;
+          beneficiary?: string;
+          metadata?: Record<string, any>;
+        }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             // Note: This requires Climate products enabled
             const response = await fetch('https://api.stripe.com/v1/climate/orders', {
               method: 'POST',
@@ -2363,9 +2401,14 @@ class PocketBaseServer {
         'stripe_create_terminal_connection_token',
         {
           location: z.string().optional().describe('Terminal location ID')
-        },
-        async ({ location }) => {
+        },        async ({ location }: { location?: string }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             const response = await fetch('https://api.stripe.com/v1/terminal/connection_tokens', {
               method: 'POST',
               headers: {
@@ -2407,9 +2450,20 @@ class PocketBaseServer {
             blockedCategories: z.array(z.string()).optional()
           }).optional().describe('Spending controls'),
           metadata: z.record(z.any()).optional().describe('Additional metadata')
-        },
-        async ({ cardholderId, currency, type, spendingControls, metadata }) => {
+        },        async ({ cardholderId, currency, type, spendingControls, metadata }: {
+          cardholderId: string;
+          currency: string;
+          type: 'virtual' | 'physical';
+          spendingControls?: any;
+          metadata?: Record<string, any>;
+        }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             const response = await fetch('https://api.stripe.com/v1/issuing/cards', {
               method: 'POST',
               headers: {
@@ -2452,9 +2506,18 @@ class PocketBaseServer {
             type: z.enum(['account', 'user']),
             account: z.string().optional()
           }).describe('Scope of the secret')
-        },
-        async ({ name, payload, scope }) => {
+        },        async ({ name, payload, scope }: {
+          name: string;
+          payload: string;
+          scope: { type: 'account' | 'user'; account?: string };
+        }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             const response = await fetch('https://api.stripe.com/v1/apps/secrets', {
               method: 'POST',
               headers: {
@@ -2500,9 +2563,18 @@ class PocketBaseServer {
             }).optional()
           }).optional().describe('Pre-filled details'),
           metadata: z.record(z.any()).optional().describe('Additional metadata')
-        },
-        async ({ type, providedDetails, metadata }) => {
+        },        async ({ type, providedDetails, metadata }: {
+          type: 'document' | 'id_number';
+          providedDetails?: any;
+          metadata?: Record<string, any>;
+        }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             const response = await fetch('https://api.stripe.com/v1/identity/verification_sessions', {
               method: 'POST',
               headers: {
@@ -2553,9 +2625,33 @@ class PocketBaseServer {
             addressSource: z.enum(['billing', 'shipping']).optional()
           }).describe('Customer details for tax calculation'),
           metadata: z.record(z.any()).optional().describe('Additional metadata')
-        },
-        async ({ currency, lineItems, customerDetails, metadata }) => {
+        },        async ({ currency, lineItems, customerDetails, metadata }: {
+          currency: string;
+          lineItems: Array<{
+            amount: number;
+            reference?: string;
+            taxBehavior?: 'exclusive' | 'inclusive';
+            taxCode?: string;
+          }>;
+          customerDetails: {
+            address: {
+              line1?: string;
+              city?: string;
+              state?: string;
+              postal_code?: string;
+              country: string;
+            };
+            addressSource?: 'billing' | 'shipping';
+          };
+          metadata?: Record<string, any>;
+        }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             const params = new URLSearchParams({
               currency,
               'line_items[0][amount]': lineItems[0]?.amount?.toString() || '0',
@@ -2605,9 +2701,24 @@ class PocketBaseServer {
           }).optional().describe('Card details if type is card'),
           customerId: z.string().optional().describe('Customer to attach to'),
           metadata: z.record(z.any()).optional().describe('Additional metadata')
-        },
-        async ({ type, card, customerId, metadata }) => {
+        },        async ({ type, card, customerId, metadata }: {
+          type: 'card' | 'us_bank_account' | 'sepa_debit' | 'ideal' | 'fpx' | 'acss_debit' | 'bacs_debit';
+          card?: {
+            number: string;
+            exp_month: number;
+            exp_year: number;
+            cvc: string;
+          };
+          customerId?: string;
+          metadata?: Record<string, any>;
+        }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             const params = new URLSearchParams({ type });
             
             if (card && type === 'card') {
@@ -2648,9 +2759,17 @@ class PocketBaseServer {
         {
           paymentMethodId: z.string().describe('Payment method ID'),
           customerId: z.string().describe('Customer ID to attach to')
-        },
-        async ({ paymentMethodId, customerId }) => {
+        },        async ({ paymentMethodId, customerId }: {
+          paymentMethodId: string;
+          customerId: string;
+        }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             const response = await fetch(`https://api.stripe.com/v1/payment_methods/${paymentMethodId}/attach`, {
               method: 'POST',
               headers: {
@@ -2676,9 +2795,17 @@ class PocketBaseServer {
         {
           customerId: z.string().describe('Customer ID'),
           type: z.enum(['card', 'us_bank_account', 'sepa_debit']).optional().describe('Payment method type filter')
-        },
-        async ({ customerId, type }) => {
+        },        async ({ customerId, type }: {
+          customerId: string;
+          type?: 'card' | 'us_bank_account' | 'sepa_debit';
+        }) => {
           try {
+            if (!process.env.STRIPE_SECRET_KEY) {
+              return {
+                content: [{ type: 'text', text: 'Error: STRIPE_SECRET_KEY environment variable is required for Stripe operations' }],
+                isError: true
+              };
+            }
             const params = new URLSearchParams({ customer: customerId });
             if (type) params.append('type', type);
 
@@ -3257,15 +3384,272 @@ class PocketBaseServer {
               }),
             });            const accountLink = await response.json();
             return { content: [{ type: 'text', text: JSON.stringify(accountLink, null, 2) }] };
-          } catch (error: any) {
-            return {
+          } catch (error: any) {            return {
               content: [{ type: 'text', text: `Failed to create account link: ${error.message}` }],
               isError: true
             };
           }
         }
       );
-    }
+
+    // === EMAIL SERVICE TOOLS ===
+    // Note: These tools are always registered for discovery, but require email configuration at runtime
+    
+    this.server.tool(
+      'email_create_template',
+      {
+        name: z.string().describe('Template name'),
+        subject: z.string().describe('Email subject'),
+        htmlContent: z.string().describe('HTML email content'),
+        textContent: z.string().optional().describe('Plain text email content'),
+        variables: z.array(z.string()).optional().describe('Template variables')
+      },
+      async ({ name, subject, htmlContent, textContent, variables }) => {
+        try {
+          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
+            return {
+              content: [{ type: 'text', text: 'Error: Email service configuration required. Set EMAIL_SERVICE or SMTP configuration environment variables.' }],
+              isError: true
+            };
+          }
+
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+
+          const template = await this.emailService.createTemplate({
+            name,
+            subject,
+            htmlContent,
+            textContent,
+            variables
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create email template: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      'email_get_template',
+      {
+        name: z.string().describe('Template name')
+      },
+      async ({ name }) => {
+        try {
+          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
+            return {
+              content: [{ type: 'text', text: 'Error: Email service configuration required. Set EMAIL_SERVICE or SMTP configuration environment variables.' }],
+              isError: true
+            };
+          }
+
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+
+          const template = await this.emailService.getTemplate(name);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to get email template: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      'email_update_template',
+      {
+        name: z.string().describe('Template name'),
+        subject: z.string().optional().describe('New email subject'),
+        htmlContent: z.string().optional().describe('New HTML email content'),
+        textContent: z.string().optional().describe('New plain text email content'),
+        variables: z.array(z.string()).optional().describe('New template variables')
+      },
+      async ({ name, subject, htmlContent, textContent, variables }) => {
+        try {
+          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
+            return {
+              content: [{ type: 'text', text: 'Error: Email service configuration required. Set EMAIL_SERVICE or SMTP configuration environment variables.' }],
+              isError: true
+            };
+          }
+
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+
+          const template = await this.emailService.updateTemplate(name, {
+            subject,
+            htmlContent,
+            textContent,
+            variables
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to update email template: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      'email_send_templated',
+      {
+        template: z.string().describe('Template name'),
+        to: z.string().email().describe('Recipient email'),
+        from: z.string().email().optional().describe('Sender email'),
+        variables: z.record(z.any()).optional().describe('Template variables'),
+        customSubject: z.string().optional().describe('Custom subject override')
+      },
+      async ({ template, to, from, variables, customSubject }) => {
+        try {
+          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
+            return {
+              content: [{ type: 'text', text: 'Error: Email service configuration required. Set EMAIL_SERVICE or SMTP configuration environment variables.' }],
+              isError: true
+            };
+          }
+
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+
+          const emailLog = await this.emailService.sendTemplatedEmail({
+            template,
+            to,
+            from,
+            variables,
+            customSubject
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(emailLog, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to send templated email: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      'email_send_custom',
+      {
+        to: z.string().email().describe('Recipient email'),
+        from: z.string().email().optional().describe('Sender email'),
+        subject: z.string().describe('Email subject'),
+        html: z.string().describe('HTML email content'),
+        text: z.string().optional().describe('Plain text email content')
+      },
+      async ({ to, from, subject, html, text }) => {
+        try {
+          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
+            return {
+              content: [{ type: 'text', text: 'Error: Email service configuration required. Set EMAIL_SERVICE or SMTP configuration environment variables.' }],
+              isError: true
+            };
+          }
+
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+
+          const emailLog = await this.emailService.sendCustomEmail({
+            to,
+            from,
+            subject,
+            html,
+            text
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(emailLog, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to send custom email: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      'email_test_connection',
+      {},
+      async () => {
+        try {
+          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
+            return {
+              content: [{ type: 'text', text: 'Error: Email service configuration required. Set EMAIL_SERVICE or SMTP configuration environment variables.' }],
+              isError: true
+            };
+          }
+
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+
+          const result = await this.emailService.testConnection();
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to test email connection: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      'email_create_default_templates',
+      {},
+      async () => {
+        try {
+          if (!process.env.EMAIL_SERVICE && !process.env.SMTP_HOST) {
+            return {
+              content: [{ type: 'text', text: 'Error: Email service configuration required. Set EMAIL_SERVICE or SMTP configuration environment variables.' }],
+              isError: true
+            };
+          }
+
+          if (!this.emailService) {
+            this.emailService = new EmailService(this.pb);
+          }
+
+          const results = await this.emailService.createDefaultTemplates();
+          return {
+            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ type: 'text', text: `Failed to create default email templates: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
   }
 
   async run() {

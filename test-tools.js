@@ -1,22 +1,28 @@
 #!/usr/bin/env node
 
-// Temporarily set required environment variables for testing
-process.env.POCKETBASE_URL = 'http://localhost:8090';
-process.env.STRIPE_SECRET_KEY = 'sk_test_dummy_key_for_initialization';
+async function testTools() {
+  // Temporarily set required environment variables for testing
+  process.env.POCKETBASE_URL = 'http://localhost:8090';
+  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy_key_for_initialization';
 
-import('./build/index.js').then(module => {
   try {
-    console.log('Testing tool registration...');
+    console.log('Loading module...');
+    const module = await import('./build/index.js');
     
-    // Import the PocketBaseServer class
-    const PocketBaseServer = module.default || module.PocketBaseServer;
+    console.log('Module loaded, available exports:', Object.keys(module));
+    
+    // Check if we can find the class
+    let PocketBaseServer = module.default;
+    if (!PocketBaseServer && module.PocketBaseServer) {
+      PocketBaseServer = module.PocketBaseServer;
+    }
     
     if (!PocketBaseServer) {
-      console.error('PocketBaseServer class not found in module');
-      console.log('Available exports:', Object.keys(module));
+      console.error('❌ PocketBaseServer class not found');
       return;
     }
     
+    console.log('Creating server instance...');    
     const server = new PocketBaseServer();
     console.log('✅ Server initialized successfully');
     
@@ -46,28 +52,6 @@ import('./build/index.js').then(module => {
         console.log(`  ${index + 1}. ${tool}`);
       });
     }
-    
-    // Show breakdown of tool categories
-    const categories = {
-      'stripe_': 'Stripe Payment Tools',
-      'email': 'Email Tools',
-      'create_': 'Creation Tools',
-      'list_': 'Listing Tools',
-      'update_': 'Update Tools',
-      'delete_': 'Deletion Tools',
-      'get_': 'Retrieval Tools',
-      'auth': 'Authentication Tools',
-      'batch_': 'Batch Operations',
-      'setup_': 'Setup Tools'
-    };
-    
-    console.log('\n📋 Tool Categories:');
-    Object.entries(categories).forEach(([prefix, name]) => {
-      const count = toolNames.filter(tool => tool.includes(prefix)).length;
-      if (count > 0) {
-        console.log(`  ${name}: ${count} tools`);
-      }
-    });
     
     // Check if all expected modern Stripe tools are present
     const expectedStripeTools = [
@@ -121,10 +105,9 @@ import('./build/index.js').then(module => {
     console.log('\n✨ Tool registration test completed successfully!');
     
   } catch (error) {
-    console.error('❌ Initialization error:', error.message);
+    console.error('❌ Error:', error.message);
     console.error('Stack:', error.stack);
   }
-}).catch(err => {
-  console.error('❌ Import error:', err.message);
-  console.error('Stack:', err.stack);
-});
+}
+
+testTools();
