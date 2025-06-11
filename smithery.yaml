@@ -2,7 +2,8 @@
 
 runtime: "container"
 startCommand:
-  type: "http"  configSchema:
+  type: "http"
+  configSchema:
     type: object
     required:
       - pocketbaseUrl
