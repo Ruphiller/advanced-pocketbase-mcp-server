@@ -735,7 +735,7 @@ class PocketBaseServer {
     this.server.tool(
       'authenticate_user',
       {
-        // Make email and password optional to allow using env vars when isAdmin is true
+        // Make email and password optional to allow using env vars when isAdmin=true
         email: z.string().optional().describe('User email (required unless isAdmin=true and env vars are set)'),
         password: z.string().optional().describe('User password (required unless isAdmin=true and env vars are set)'),
         collection: z.string().optional().default('users').describe('Collection name'),
@@ -2277,807 +2277,997 @@ class PocketBaseServer {
       );
     }
 
-    // Email Management
-    if (this.emailService) {
-      this.server.tool(
-        'create_email_template',
-        {
-          name: z.string().describe('Template name'),
-          subject: z.string().describe('Email subject'),
-          htmlContent: z.string().describe('HTML email content'),
-          textContent: z.string().optional().describe('Plain text email content'),
-          variables: z.array(z.string()).optional().describe('Template variables')
-        },
-        async ({ name, subject, htmlContent, textContent, variables }) => {
-          try {
-            const template = await this.emailService!.createTemplate({
-              name,
-              subject,
-              htmlContent,
-              textContent,
-              variables
-            });
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to create email template: ${error.message}` }],
-              isError: true
-            };
-          }
-        }      );
-
-      this.server.tool(
-        'update_email_template',
-        {
-          name: z.string().describe('Template name to update'),
-          subject: z.string().optional().describe('Email subject'),
-          htmlContent: z.string().optional().describe('HTML email content'),
-          textContent: z.string().optional().describe('Plain text email content'),
-          variables: z.array(z.string()).optional().describe('Template variables')
-        },
-        async ({ name, subject, htmlContent, textContent, variables }) => {
-          try {
-            const template = await this.emailService!.updateTemplate(name, {
-              subject,
-              htmlContent,
-              textContent,
-              variables
-            });
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to update email template: ${error.message}` }],
-              isError: true
-            };
-          }
-        }
-      );
-
-      this.server.tool(
-        'send_templated_email',
-        {
-          template: z.string().describe('Template name'),
-          to: z.string().email().describe('Recipient email'),
-          from: z.string().email().optional().describe('Sender email'),
-          variables: z.record(z.any()).optional().describe('Template variables'),
-          customSubject: z.string().optional().describe('Override template subject')
-        },
-        async ({ template, to, from, variables, customSubject }) => {
-          try {
-            const result = await this.emailService!.sendTemplatedEmail({
-              template,
-              to,
-              from,
-              variables,
-              customSubject
-            });
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to send templated email: ${error.message}` }],
-              isError: true
-            };
-          }
-        }
-      );
-
-      this.server.tool(
-        'send_custom_email',
-        {
-          to: z.string().email().describe('Recipient email'),
-          from: z.string().email().optional().describe('Sender email'),
-          subject: z.string().describe('Email subject'),
-          html: z.string().describe('HTML email content'),
-          text: z.string().optional().describe('Plain text email content')
-        },
-        async ({ to, from, subject, html, text }) => {
-          try {
-            const result = await this.emailService!.sendCustomEmail({
-              to,
-              from,
-              subject,
-              html,
-              text
-            });
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to send custom email: ${error.message}` }],
-              isError: true
-            };
-          }
-        }      );
-
-      this.server.tool(
-        'get_email_template',
-        {
-          name: z.string().describe('Template name to retrieve')
-        },
-        async ({ name }) => {
-          try {
-            const template = await this.emailService!.getTemplate(name);
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(template, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to get email template: ${error.message}` }],
-              isError: true
-            };
-          }
-        }      );
-
-      this.server.tool(
-        'list_email_templates',
-        {
-          page: z.number().optional().default(1).describe('Page number'),
-          perPage: z.number().optional().default(50).describe('Records per page'),
-          filter: z.string().optional().describe('Filter templates (PocketBase filter syntax)')
-        },
-        async ({ page, perPage, filter }) => {
-          try {
-            const options: any = {};
-            if (filter) options.filter = filter;
-
-            const templates = await this.pb.collection('email_templates').getList(page, perPage, options);
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(templates, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to list email templates: ${error.message}` }],
-              isError: true
-            };
-          }
-        }
-      );
-
-      this.server.tool(
-        'list_email_logs',
-        {
-          page: z.number().optional().default(1).describe('Page number'),
-          perPage: z.number().optional().default(50).describe('Records per page'),
-          filter: z.string().optional().describe('Filter logs (PocketBase filter syntax)')
-        },
-        async ({ page, perPage, filter }) => {
-          try {
-            const options: any = {};
-            if (filter) options.filter = filter;
-
-            const logs = await this.pb.collection('email_logs').getList(page, perPage, options);
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(logs, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to list email logs: ${error.message}` }],
-              isError: true
-            };
-          }
-        }
-      );
-
-      this.server.tool(
-        'delete_email_template',
-        {
-          name: z.string().describe('Template name to delete')
-        },
-        async ({ name }) => {
-          try {
-            // First get the template to get its ID
-            const template = await this.emailService!.getTemplate(name);
-            
-            // Delete the template by ID
-            await this.pb.collection('email_templates').delete(template.id);
-
-            return {
-              content: [{ type: 'text', text: `Successfully deleted email template: ${name}` }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to delete email template: ${error.message}` }],
-              isError: true
-            };
-          }
-        }      );
-
-      this.server.tool(
-        'test_email_connection',
-        {},
-        async () => {
-          try {
-            const result = await this.emailService!.testConnection();
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to test email connection: ${error.message}` }],
-              isError: true
-            };
-          }
-        }
-      );
-
-      this.server.tool(
-        'setup_default_email_templates',
-        {},
-        async () => {
-          try {
-            const result = await this.emailService!.createDefaultTemplates();
-
-            return {
-              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Failed to setup default templates: ${error.message}` }],
-              isError: true
-            };
-          }
-        }
-      );    }
-
-    // === FULL-STACK SAAS AUTOMATION TOOLS ===
+    // === LATEST STRIPE 2025 FEATURES ===
     
-    // Complete user registration with email and optional Stripe customer
-    this.server.tool(
-      'register_user_with_automation',
-      {
-        email: z.string().email().describe('User email'),
-        password: z.string().describe('User password'),
-        passwordConfirm: z.string().describe('Password confirmation'),
-        name: z.string().optional().describe('User name'),
-        sendWelcomeEmail: z.boolean().default(true).describe('Send welcome email'),
-        createStripeCustomer: z.boolean().default(true).describe('Create Stripe customer'),
-        welcomeEmailTemplate: z.string().default('welcome').describe('Welcome email template name'),
-        metadata: z.record(z.any()).optional().describe('Additional metadata'),
-        collection: z.string().optional().default('users').describe('Collection name')
-      },
-      async ({ email, password, passwordConfirm, name, sendWelcomeEmail, createStripeCustomer, welcomeEmailTemplate, metadata, collection }) => {
-        try {
-          const results: any = { user: null, stripeCustomer: null, emailLog: null };
-
-          // 1. Create user account
-          const user = await this.pb.collection(collection).create({
-            email,
-            password,
-            passwordConfirm,
-            name,
-            ...metadata
-          });
-          results.user = user;
-
-          // 2. Create Stripe customer if requested and service available
-          if (createStripeCustomer && this.stripeService) {
-            try {
-              const stripeCustomer = await this.stripeService.createCustomer({
-                email,
-                name,
-                userId: user.id,
-                metadata: { userId: user.id, ...metadata }
-              });
-              results.stripeCustomer = stripeCustomer;
-            } catch (error: any) {
-              console.warn('Failed to create Stripe customer:', error.message);
-              results.stripeCustomerError = error.message;
-            }
-          }
-
-          // 3. Send welcome email if requested and service available
-          if (sendWelcomeEmail && this.emailService) {
-            try {
-              const emailLog = await this.emailService.sendTemplatedEmail({
-                template: welcomeEmailTemplate,
-                to: email,
-                variables: {
-                  userName: name || email.split('@')[0],
-                  appName: process.env.APP_NAME || 'Our Platform',
-                  userEmail: email
-                }
-              });
-              results.emailLog = emailLog;
-            } catch (error: any) {
-              console.warn('Failed to send welcome email:', error.message);
-              results.emailError = error.message;
-            }
-          }
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to register user: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Complete subscription flow with email notifications
-    this.server.tool(
-      'create_subscription_flow',
-      {
-        userEmail: z.string().email().describe('User email'),
-        priceId: z.string().describe('Stripe price ID'),
-        successUrl: z.string().url().describe('Success redirect URL'),
-        cancelUrl: z.string().url().describe('Cancel redirect URL'),
-        sendConfirmationEmail: z.boolean().default(true).describe('Send payment confirmation email'),
-        emailTemplate: z.string().default('payment_success').describe('Email template for confirmation'),
-        metadata: z.record(z.any()).optional().describe('Additional metadata')
-      },
-      async ({ userEmail, priceId, successUrl, cancelUrl, sendConfirmationEmail, emailTemplate, metadata }) => {
-        try {
-          if (!this.stripeService) {
-            throw new Error('Stripe service not configured');
-          }
-
-          const results: any = { customer: null, checkoutSession: null, emailLog: null };
-
-          // 1. Get or create Stripe customer
-          let stripeCustomer;
+    if (this.stripeService) {
+      // Treasury (for embedded finance)
+      this.server.tool(
+        'stripe_create_treasury_financial_account',
+        {
+          supportedCurrencies: z.array(z.string()).describe('Supported currencies for the account'),
+          countryCode: z.string().describe('Country code for compliance'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ supportedCurrencies, countryCode, metadata }) => {
           try {
-            stripeCustomer = await this.pb.collection('stripe_customers')
-              .getFirstListItem(`email="${userEmail}"`);
-          } catch {
-            // Create new customer if not found
-            stripeCustomer = await this.stripeService.createCustomer({
-              email: userEmail,
-              metadata: metadata || {}
+            // Note: This requires Treasury enabled on your Stripe account
+            const response = await fetch('https://api.stripe.com/v1/treasury/financial_accounts', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                'supported_currencies[]': supportedCurrencies.join(','),
+                'country': countryCode,
+                ...Object.fromEntries(Object.entries(metadata || {}).map(([k, v]) => [`metadata[${k}]`, String(v)]))
+              }),
             });
-          }
-          results.customer = stripeCustomer;
 
-          // 2. Create checkout session
-          const checkoutSession = await this.stripeService.createCheckoutSession({
-            priceId,
-            customerId: stripeCustomer.stripeCustomerId,
-            successUrl,
-            cancelUrl,
-            mode: 'subscription',
-            metadata: metadata || {}
-          });
-          results.checkoutSession = checkoutSession;
+            const account = await response.json();
 
-          // 3. Send confirmation email (this will be triggered by webhook in real scenarios)
-          if (sendConfirmationEmail && this.emailService) {
-            try {
-              const emailLog = await this.emailService.sendTemplatedEmail({
-                template: emailTemplate,
-                to: userEmail,
-                variables: {
-                  userName: stripeCustomer.name || userEmail.split('@')[0],
-                  appName: process.env.APP_NAME || 'Our Platform',
-                  checkoutUrl: checkoutSession.url
-                }
-              });
-              results.emailLog = emailLog;
-            } catch (error: any) {
-              console.warn('Failed to send confirmation email:', error.message);
-              results.emailError = error.message;
-            }
-          }
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to create subscription flow: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Process payment webhook and send notification email
-    this.server.tool(
-      'process_payment_webhook_with_email',
-      {
-        webhookBody: z.string().describe('Stripe webhook body'),
-        webhookSignature: z.string().describe('Stripe webhook signature'),
-        sendNotificationEmail: z.boolean().default(true).describe('Send notification email'),
-        emailTemplate: z.string().default('payment_success').describe('Email template to use')
-      },
-      async ({ webhookBody, webhookSignature, sendNotificationEmail, emailTemplate }) => {
-        try {
-          if (!this.stripeService) {
-            throw new Error('Stripe service not configured');
-          }
-
-          const results: any = { webhookResult: null, emailLog: null };
-
-          // 1. Process webhook
-          const webhookResult = await this.stripeService.handleWebhook(webhookBody, webhookSignature);
-          results.webhookResult = webhookResult;
-
-          // 2. Send notification email if successful payment
-          if (sendNotificationEmail && this.emailService && webhookResult.processed) {
-            try {
-              // Parse webhook data to get customer email
-              const event = JSON.parse(webhookBody);
-              
-              if (event.type === 'checkout.session.completed' || event.type === 'invoice.payment_succeeded') {
-                const customerEmail = event.data.object.customer_email || 
-                                     event.data.object.customer?.email;
-                
-                if (customerEmail) {
-                  const emailLog = await this.emailService.sendTemplatedEmail({
-                    template: emailTemplate,
-                    to: customerEmail,
-                    variables: {
-                      userName: customerEmail.split('@')[0],
-                      appName: process.env.APP_NAME || 'Our Platform',
-                      amount: (event.data.object.amount_total || event.data.object.amount_paid) / 100,
-                      currency: (event.data.object.currency || 'usd').toUpperCase(),
-                      date: new Date().toLocaleDateString()
-                    }
-                  });
-                  results.emailLog = emailLog;
-                }
-              }
-            } catch (error: any) {
-              console.warn('Failed to send payment notification email:', error.message);
-              results.emailError = error.message;
-            }
-          }
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to process webhook: ${error.message}` }],
-            isError: true
-          };
-        }
-      }
-    );
-
-    // Setup complete SaaS backend (collections, templates, products)
-    this.server.tool(
-      'setup_complete_saas_backend',
-      {
-        appName: z.string().default('My SaaS App').describe('Application name'),
-        products: z.array(z.object({
-          name: z.string(),
-          description: z.string().optional(),
-          price: z.number(),
-          currency: z.string().default('usd'),
-          recurring: z.boolean().default(true),
-          interval: z.enum(['month', 'year']).default('month')
-        })).optional().describe('Products to create'),
-        customEmailTemplates: z.array(z.object({
-          name: z.string(),
-          subject: z.string(),
-          htmlContent: z.string(),
-          textContent: z.string().optional(),
-          variables: z.array(z.string()).optional()
-        })).optional().describe('Custom email templates to create')
-      },
-      async ({ appName, products, customEmailTemplates }) => {
-        try {
-          const results: any = {
-            collections: null,
-            emailTemplates: null,
-            stripeProducts: null,
-            customTemplates: null
-          };
-
-          // 1. Setup required collections
-          try {
-            const collectionsResult = await this.pb.collection('_collections').create({
-              name: 'setup_advanced_collections'
-            });
-            results.collections = 'setup completed';
+            return {
+              content: [{ type: 'text', text: JSON.stringify(account, null, 2) }]
+            };
           } catch (error: any) {
-            // Collections might already exist, which is fine
-            results.collections = 'collections already exist or setup completed';
+            return {
+              content: [{ type: 'text', text: `Failed to create treasury financial account: ${error.message}` }],
+              isError: true
+            };
           }
+        }
+      );
 
-          // 2. Setup default email templates
-          if (this.emailService) {
-            try {
-              const templatesResult = await this.emailService.createDefaultTemplates();
-              results.emailTemplates = templatesResult;
+      // Climate - Carbon removal orders (Stripe Climate)
+      this.server.tool(
+        'stripe_create_climate_order',
+        {
+          amount: z.number().describe('Amount in smallest currency unit for carbon removal'),
+          currency: z.string().default('usd').describe('Currency'),
+          beneficiary: z.string().optional().describe('Beneficiary of the carbon removal'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ amount, currency, beneficiary, metadata }) => {
+          try {
+            // Note: This requires Climate products enabled
+            const response = await fetch('https://api.stripe.com/v1/climate/orders', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                amount: amount.toString(),
+                currency,
+                ...(beneficiary && { beneficiary }),
+                ...Object.fromEntries(Object.entries(metadata || {}).map(([k, v]) => [`metadata[${k}]`, String(v)]))
+              }),
+            });
 
-              // Update templates with app name
-              try {
-                const templates = ['welcome', 'payment_success', 'subscription_expired'];
-                for (const templateName of templates) {
-                  const template = await this.emailService.getTemplate(templateName);
-                  await this.emailService.updateTemplate(templateName, {
-                    htmlContent: template.htmlContent.replace(/\{\{appName\}\}/g, appName),
-                    textContent: template.textContent?.replace(/\{\{appName\}\}/g, appName)
-                  });
-                }
-              } catch (error: any) {
-                console.warn('Failed to update template app names:', error.message);
+            const order = await response.json();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(order, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create climate order: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Terminal - For in-person payments
+      this.server.tool(
+        'stripe_create_terminal_connection_token',
+        {
+          location: z.string().optional().describe('Terminal location ID')
+        },
+        async ({ location }) => {
+          try {
+            const response = await fetch('https://api.stripe.com/v1/terminal/connection_tokens', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                ...(location && { location })
+              }),
+            });
+
+            const token = await response.json();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(token, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create terminal connection token: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Issuing - For card issuing
+      this.server.tool(
+        'stripe_create_issuing_card',
+        {
+          cardholderId: z.string().describe('Cardholder ID'),
+          currency: z.string().describe('Currency for the card'),
+          type: z.enum(['virtual', 'physical']).describe('Type of card'),
+          spendingControls: z.object({
+            spendingLimits: z.array(z.object({
+              amount: z.number(),
+              interval: z.enum(['per_authorization', 'daily', 'weekly', 'monthly', 'yearly', 'all_time'])
+            })).optional(),
+            allowedCategories: z.array(z.string()).optional(),
+            blockedCategories: z.array(z.string()).optional()
+          }).optional().describe('Spending controls'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ cardholderId, currency, type, spendingControls, metadata }) => {
+          try {
+            const response = await fetch('https://api.stripe.com/v1/issuing/cards', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                cardholder: cardholderId,
+                currency,
+                type,
+                ...(spendingControls && {
+                  'spending_controls[spending_limits][0][amount]': spendingControls.spendingLimits?.[0]?.amount?.toString() || '',
+                  'spending_controls[spending_limits][0][interval]': spendingControls.spendingLimits?.[0]?.interval || ''
+                }),
+                ...Object.fromEntries(Object.entries(metadata || {}).map(([k, v]) => [`metadata[${k}]`, String(v)]))
+              }),
+            });
+
+            const card = await response.json();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(card, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create issuing card: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Apps - For marketplace/platform integrations
+      this.server.tool(
+        'stripe_create_app_secret',
+        {
+          name: z.string().describe('Name for the secret'),
+          payload: z.string().describe('Secret payload'),
+          scope: z.object({
+            type: z.enum(['account', 'user']),
+            account: z.string().optional()
+          }).describe('Scope of the secret')
+        },
+        async ({ name, payload, scope }) => {
+          try {
+            const response = await fetch('https://api.stripe.com/v1/apps/secrets', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                name,
+                payload,
+                'scope[type]': scope.type,
+                ...(scope.account && { 'scope[account]': scope.account })
+              }),
+            });
+
+            const secret = await response.json();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(secret, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create app secret: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Identity - For identity verification
+      this.server.tool(
+        'stripe_create_identity_verification_session',
+        {
+          type: z.enum(['document', 'id_number']).describe('Type of verification'),
+          providedDetails: z.object({
+            email: z.string().email().optional(),
+            phone: z.string().optional(),
+            address: z.object({
+              line1: z.string().optional(),
+              city: z.string().optional(),
+              state: z.string().optional(),
+              postal_code: z.string().optional(),
+              country: z.string().optional()
+            }).optional()
+          }).optional().describe('Pre-filled details'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ type, providedDetails, metadata }) => {
+          try {
+            const response = await fetch('https://api.stripe.com/v1/identity/verification_sessions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                type,
+                ...(providedDetails?.email && { 'provided_details[email]': providedDetails.email }),
+                ...(providedDetails?.phone && { 'provided_details[phone]': providedDetails.phone }),
+                ...Object.fromEntries(Object.entries(metadata || {}).map(([k, v]) => [`metadata[${k}]`, String(v)]))
+              }),
+            });
+
+            const session = await response.json();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(session, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create identity verification session: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Tax - For automated tax calculation
+      this.server.tool(
+        'stripe_create_tax_calculation',
+        {
+          currency: z.string().describe('Currency for the calculation'),
+          lineItems: z.array(z.object({
+            amount: z.number(),
+            reference: z.string().optional(),
+            taxBehavior: z.enum(['exclusive', 'inclusive']).optional(),
+            taxCode: z.string().optional()
+          })).describe('Line items for tax calculation'),
+          customerDetails: z.object({
+            address: z.object({
+              line1: z.string().optional(),
+              city: z.string().optional(),
+              state: z.string().optional(),
+              postal_code: z.string().optional(),
+              country: z.string()
+            }),
+            addressSource: z.enum(['billing', 'shipping']).optional()
+          }).describe('Customer details for tax calculation'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ currency, lineItems, customerDetails, metadata }) => {
+          try {
+            const params = new URLSearchParams({
+              currency,
+              'line_items[0][amount]': lineItems[0]?.amount?.toString() || '0',
+              'customer_details[address][country]': customerDetails.address.country,
+              ...(customerDetails.address.line1 && { 'customer_details[address][line1]': customerDetails.address.line1 }),
+              ...(customerDetails.address.city && { 'customer_details[address][city]': customerDetails.address.city }),
+              ...(customerDetails.address.state && { 'customer_details[address][state]': customerDetails.address.state }),
+              ...(customerDetails.address.postal_code && { 'customer_details[address][postal_code]': customerDetails.address.postal_code }),
+              ...Object.fromEntries(Object.entries(metadata || {}).map(([k, v]) => [`metadata[${k}]`, String(v)]))
+            });
+            
+            const response = await fetch('https://api.stripe.com/v1/tax/calculations', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const calculation = await response.json();
+
+            return {
+              content: [{ type: 'text', text: JSON.stringify(calculation, null, 2) }]
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create tax calculation: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // === COMPREHENSIVE STRIPE PAYMENT METHODS & MODERN FEATURES ===
+
+      // Payment Methods - Modern payment method management
+      this.server.tool(
+        'stripe_create_payment_method',
+        {
+          type: z.enum(['card', 'us_bank_account', 'sepa_debit', 'ideal', 'fpx', 'acss_debit', 'bacs_debit']).describe('Payment method type'),
+          card: z.object({
+            number: z.string(),
+            exp_month: z.number(),
+            exp_year: z.number(),
+            cvc: z.string()
+          }).optional().describe('Card details if type is card'),
+          customerId: z.string().optional().describe('Customer to attach to'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ type, card, customerId, metadata }) => {
+          try {
+            const params = new URLSearchParams({ type });
+            
+            if (card && type === 'card') {
+              params.append('card[number]', card.number);
+              params.append('card[exp_month]', card.exp_month.toString());
+              params.append('card[exp_year]', card.exp_year.toString());
+              params.append('card[cvc]', card.cvc);
+            }
+            
+            if (customerId) params.append('customer', customerId);
+            
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
+
+            const response = await fetch('https://api.stripe.com/v1/payment_methods', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const paymentMethod = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(paymentMethod, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create payment method: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'stripe_attach_payment_method',
+        {
+          paymentMethodId: z.string().describe('Payment method ID'),
+          customerId: z.string().describe('Customer ID to attach to')
+        },
+        async ({ paymentMethodId, customerId }) => {
+          try {
+            const response = await fetch(`https://api.stripe.com/v1/payment_methods/${paymentMethodId}/attach`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({ customer: customerId }),
+            });
+
+            const paymentMethod = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(paymentMethod, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to attach payment method: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      this.server.tool(
+        'stripe_list_payment_methods',
+        {
+          customerId: z.string().describe('Customer ID'),
+          type: z.enum(['card', 'us_bank_account', 'sepa_debit']).optional().describe('Payment method type filter')
+        },
+        async ({ customerId, type }) => {
+          try {
+            const params = new URLSearchParams({ customer: customerId });
+            if (type) params.append('type', type);
+
+            const response = await fetch(`https://api.stripe.com/v1/payment_methods?${params}`, {
+              headers: { 'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+            });
+
+            const paymentMethods = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(paymentMethods, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list payment methods: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Setup Intents - For saving payment methods without charging
+      this.server.tool(
+        'stripe_create_setup_intent',
+        {
+          customerId: z.string().optional().describe('Customer ID'),
+          paymentMethodTypes: z.array(z.string()).default(['card']).describe('Allowed payment method types'),
+          usage: z.enum(['off_session', 'on_session']).default('off_session').describe('How the payment method will be used'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ customerId, paymentMethodTypes, usage, metadata }) => {
+          try {
+            const params = new URLSearchParams({ usage });
+            if (customerId) params.append('customer', customerId);
+            
+            paymentMethodTypes.forEach(type => params.append('payment_method_types[]', type));
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
+
+            const response = await fetch('https://api.stripe.com/v1/setup_intents', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const setupIntent = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(setupIntent, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create setup intent: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Payment Links - Shareable payment links
+      this.server.tool(
+        'stripe_create_payment_link',
+        {
+          lineItems: z.array(z.object({
+            price: z.string(),
+            quantity: z.number()
+          })).describe('Line items for the payment link'),
+          afterCompletion: z.object({
+            type: z.enum(['redirect', 'hosted_confirmation']),
+            redirect: z.object({
+              url: z.string()
+            }).optional()
+          }).optional().describe('After completion behavior'),
+          allowPromotionCodes: z.boolean().default(false).describe('Allow promotion codes'),
+          applicationFeeAmount: z.number().optional().describe('Application fee in cents'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ lineItems, afterCompletion, allowPromotionCodes, applicationFeeAmount, metadata }) => {
+          try {
+            const params = new URLSearchParams();
+            
+            lineItems.forEach((item, index) => {
+              params.append(`line_items[${index}][price]`, item.price);
+              params.append(`line_items[${index}][quantity]`, item.quantity.toString());
+            });
+            
+            if (afterCompletion) {
+              params.append('after_completion[type]', afterCompletion.type);
+              if (afterCompletion.redirect?.url) {
+                params.append('after_completion[redirect][url]', afterCompletion.redirect.url);
               }
-            } catch (error: any) {
-              results.emailTemplatesError = error.message;
             }
+            
+            params.append('allow_promotion_codes', allowPromotionCodes.toString());
+            if (applicationFeeAmount) params.append('application_fee_amount', applicationFeeAmount.toString());
+            
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
 
-            // 3. Create custom email templates
-            if (customEmailTemplates && customEmailTemplates.length > 0) {
-              const customResults = [];
-              for (const template of customEmailTemplates) {
-                try {
-                  const created = await this.emailService.createTemplate(template);
-                  customResults.push({ template: template.name, action: 'created', id: created.id });
-                } catch (error: any) {
-                  customResults.push({ template: template.name, action: 'error', error: error.message });
-                }
+            const response = await fetch('https://api.stripe.com/v1/payment_links', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const paymentLink = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(paymentLink, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create payment link: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Prices - Modern price management
+      this.server.tool(
+        'stripe_create_price',
+        {
+          productId: z.string().describe('Product ID'),
+          unitAmount: z.number().describe('Unit amount in cents'),
+          currency: z.string().default('usd').describe('Currency'),
+          recurring: z.object({
+            interval: z.enum(['day', 'week', 'month', 'year']),
+            intervalCount: z.number().optional()
+          }).optional().describe('Recurring billing details'),
+          nickname: z.string().optional().describe('Price nickname'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ productId, unitAmount, currency, recurring, nickname, metadata }) => {
+          try {
+            const params = new URLSearchParams({
+              product: productId,
+              unit_amount: unitAmount.toString(),
+              currency
+            });
+            
+            if (recurring) {
+              params.append('recurring[interval]', recurring.interval);
+              if (recurring.intervalCount) {
+                params.append('recurring[interval_count]', recurring.intervalCount.toString());
               }
-              results.customTemplates = customResults;
             }
-          }
+            
+            if (nickname) params.append('nickname', nickname);
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
 
-          // 4. Create Stripe products
-          if (this.stripeService && products && products.length > 0) {
-            const productResults = [];
-            for (const product of products) {
-              try {
-                const created = await this.stripeService.createProduct(product);
-                productResults.push({ product: product.name, action: 'created', id: created.id });
-              } catch (error: any) {
-                productResults.push({ product: product.name, action: 'error', error: error.message });
-              }
+            const response = await fetch('https://api.stripe.com/v1/prices', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const price = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(price, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create price: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Coupons - Discount management
+      this.server.tool(
+        'stripe_create_coupon',
+        {
+          id: z.string().optional().describe('Coupon ID (optional, auto-generated if not provided)'),
+          percentOff: z.number().optional().describe('Percent off (1-100)'),
+          amountOff: z.number().optional().describe('Amount off in cents'),
+          currency: z.string().optional().describe('Currency for amount_off'),
+          duration: z.enum(['forever', 'once', 'repeating']).describe('How long the coupon is valid'),
+          durationInMonths: z.number().optional().describe('Duration in months if duration is repeating'),
+          maxRedemptions: z.number().optional().describe('Maximum number of redemptions'),
+          redeemBy: z.number().optional().describe('Unix timestamp for expiration'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ id, percentOff, amountOff, currency, duration, durationInMonths, maxRedemptions, redeemBy, metadata }) => {
+          try {
+            const params = new URLSearchParams({ duration });
+            
+            if (id) params.append('id', id);
+            if (percentOff) params.append('percent_off', percentOff.toString());
+            if (amountOff) {
+              params.append('amount_off', amountOff.toString());
+              if (currency) params.append('currency', currency);
             }
-            results.stripeProducts = productResults;
-          }
+            if (durationInMonths) params.append('duration_in_months', durationInMonths.toString());
+            if (maxRedemptions) params.append('max_redemptions', maxRedemptions.toString());
+            if (redeemBy) params.append('redeem_by', redeemBy.toString());
+            
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
 
-          return {
-            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to setup SaaS backend: ${error.message}` }],
-            isError: true
-          };
+            const response = await fetch('https://api.stripe.com/v1/coupons', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const coupon = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(coupon, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create coupon: ${error.message}` }],
+              isError: true
+            };
+          }
         }
-      }
-    );
+      );
 
-    // Cancel subscription with email notification
-    this.server.tool(
-      'cancel_subscription_with_email',
-      {
-        subscriptionId: z.string().describe('Stripe subscription ID'),
-        userEmail: z.string().email().describe('User email'),
-        cancelAtPeriodEnd: z.boolean().default(true).describe('Cancel at period end'),
-        sendNotificationEmail: z.boolean().default(true).describe('Send cancellation email'),
-        reason: z.string().optional().describe('Cancellation reason'),
-        emailTemplate: z.string().default('subscription_expired').describe('Email template to use')
-      },
-      async ({ subscriptionId, userEmail, cancelAtPeriodEnd, sendNotificationEmail, reason, emailTemplate }) => {
-        try {
-          if (!this.stripeService) {
-            throw new Error('Stripe service not configured');
+      // Invoices - Invoice management
+      this.server.tool(
+        'stripe_create_invoice',
+        {
+          customerId: z.string().describe('Customer ID'),
+          description: z.string().optional().describe('Invoice description'),
+          dueDate: z.number().optional().describe('Unix timestamp for due date'),
+          autoAdvance: z.boolean().default(true).describe('Auto-finalize and send'),
+          collectionMethod: z.enum(['charge_automatically', 'send_invoice']).default('charge_automatically').describe('Collection method'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ customerId, description, dueDate, autoAdvance, collectionMethod, metadata }) => {
+          try {
+            const params = new URLSearchParams({
+              customer: customerId,
+              auto_advance: autoAdvance.toString(),
+              collection_method: collectionMethod
+            });
+            
+            if (description) params.append('description', description);
+            if (dueDate) params.append('due_date', dueDate.toString());
+            
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
+
+            const response = await fetch('https://api.stripe.com/v1/invoices', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const invoice = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(invoice, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create invoice: ${error.message}` }],
+              isError: true
+            };
           }
-
-          const results: any = { subscription: null, emailLog: null };
-
-          // 1. Cancel subscription
-          const subscription = await this.stripeService.cancelSubscription(subscriptionId, cancelAtPeriodEnd);
-          results.subscription = subscription;
-
-          // 2. Send notification email
-          if (sendNotificationEmail && this.emailService) {
-            try {
-              const emailLog = await this.emailService.sendTemplatedEmail({
-                template: emailTemplate,
-                to: userEmail,
-                variables: {
-                  userName: userEmail.split('@')[0],
-                  appName: process.env.APP_NAME || 'Our Platform',
-                  planName: 'Subscription',
-                  expirationDate: cancelAtPeriodEnd ? 
-                    new Date(subscription.current_period_end * 1000).toLocaleDateString() :
-                    new Date().toLocaleDateString(),
-                  reason: reason || 'User requested cancellation',
-                  renewalUrl: process.env.APP_URL || 'https://yourapp.com'
-                }
-              });
-              results.emailLog = emailLog;
-            } catch (error: any) {
-              console.warn('Failed to send cancellation email:', error.message);
-              results.emailError = error.message;
-            }
-          }
-
-          return {
-            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
-          };
-        } catch (error: any) {
-          return {
-            content: [{ type: 'text', text: `Failed to cancel subscription: ${error.message}` }],
-            isError: true
-          };
         }
-      }
-    );
+      );
 
-    // Component Generation Tools (Phase 3 - Coming Soon)
-    this.server.tool(
-      'generate_component',
-      {
-        type: z.enum(['form', 'table', 'card', 'modal', 'pricing', 'auth']).describe('Component type'),
-        collection: z.string().optional().describe('PocketBase collection name'),
-        fields: z.array(z.string()).optional().describe('Fields to include'),
-        framework: z.enum(['react', 'svelte', 'vue', 'vanilla']).default('react').describe('Frontend framework'),
-        styling: z.enum(['tailwind', 'daisyui', 'css']).default('tailwind').describe('Styling approach')
-      },      async ({ type, collection, fields, framework, styling }) => {
-        // TODO: Implement component generation in Phase 3
-        return {
-          content: [{ 
-            type: 'text', 
-            text: `Component generation for ${type} with ${framework} and ${styling} is coming in Phase 3. Check back soon!` 
-          }]
-        };
-      }
-    );
+      this.server.tool(
+        'stripe_finalize_invoice',
+        {
+          invoiceId: z.string().describe('Invoice ID to finalize'),
+          autoAdvance: z.boolean().default(false).describe('Auto-send after finalizing')
+        },
+        async ({ invoiceId, autoAdvance }) => {
+          try {
+            const response = await fetch(`https://api.stripe.com/v1/invoices/${invoiceId}/finalize`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                auto_advance: autoAdvance.toString()
+              }),
+            });
 
-    // Advanced Features Info Tool
-    this.server.tool(
-      'get_saas_backend_status',
-      {},
-      async () => {
-        const status: any = {
-          services: {
-            pocketbase: { status: 'active', url: this.pb.baseUrl },
-            stripe: { status: this.stripeService ? 'active' : 'not configured' },
-            email: { status: this.emailService ? 'active' : 'not configured' }
-          },
-          collections: { status: 'unknown', count: 0 },
-          emailTemplates: { status: 'unknown', count: 0 },
-          stripeProducts: { status: 'unknown', count: 0 },
-          stripeCustomers: { status: 'unknown', count: 0 },
-          readyForProduction: false
-        };
-
-        try {
-          // Check collections
-          const collections = await this.pb.collections.getList(1, 100);
-          status.collections = { 
-            status: 'active', 
-            count: collections.items.length,
-            hasAdvanced: collections.items.some((c: any) => 
-              ['stripe_products', 'stripe_customers', 'email_templates'].includes(c.name)
-            )
-          };
-
-          // Check email templates
-          if (this.emailService) {
-            try {
-              const templates = await this.pb.collection('email_templates').getList(1, 100);
-              status.emailTemplates = { 
-                status: 'active', 
-                count: templates.items.length,
-                hasDefaults: templates.items.some((t: any) => 
-                  ['welcome', 'payment_success', 'subscription_expired'].includes(t.name)
-                )
-              };
-            } catch (error) {
-              status.emailTemplates = { status: 'collection_missing', count: 0 };
-            }
+            const invoice = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(invoice, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to finalize invoice: ${error.message}` }],
+              isError: true
+            };
           }
-
-          // Check Stripe data
-          if (this.stripeService) {
-            try {
-              const products = await this.pb.collection('stripe_products').getList(1, 100);
-              status.stripeProducts = { status: 'active', count: products.items.length };
-
-              const customers = await this.pb.collection('stripe_customers').getList(1, 100);
-              status.stripeCustomers = { status: 'active', count: customers.items.length };
-            } catch (error) {
-              status.stripeProducts = { status: 'collection_missing', count: 0 };
-              status.stripeCustomers = { status: 'collection_missing', count: 0 };
-            }
-          }
-
-          // Determine production readiness
-          status.readyForProduction = 
-            status.services.pocketbase.status === 'active' &&
-            status.services.stripe.status === 'active' &&
-            status.services.email.status === 'active' &&
-            status.collections.hasAdvanced &&
-            status.emailTemplates.hasDefaults;
-
-          // Recommendations
-          const recommendations: string[] = [];
-          if (status.services.stripe.status !== 'active') {
-            recommendations.push('Configure Stripe (add STRIPE_SECRET_KEY)');
-          }
-          if (status.services.email.status !== 'active') {
-            recommendations.push('Configure email service (SMTP or SendGrid)');
-          }
-          if (!status.collections.hasAdvanced) {
-            recommendations.push('Run setup_advanced_collections tool');
-          }
-          if (!status.emailTemplates.hasDefaults) {
-            recommendations.push('Run setup_default_email_templates tool');
-          }
-          if (status.stripeProducts.count === 0 && status.services.stripe.status === 'active') {
-            recommendations.push('Create some products with stripe_create_product');
-          }
-
-          status.recommendations = recommendations;
-
-        } catch (error: any) {
-          status.error = error.message;
         }
+      );
 
-        return {
-          content: [{ type: 'text', text: JSON.stringify(status, null, 2) }]
-        };
-      }
-    );
+      // Refunds - Payment refunds
+      this.server.tool(
+        'stripe_create_refund',
+        {
+          paymentIntentId: z.string().optional().describe('Payment Intent ID'),
+          chargeId: z.string().optional().describe('Charge ID'),
+          amount: z.number().optional().describe('Amount to refund in cents (optional, full refund if not specified)'),
+          reason: z.enum(['duplicate', 'fraudulent', 'requested_by_customer']).optional().describe('Reason for refund'),
+          refundApplicationFee: z.boolean().default(false).describe('Whether to refund application fee'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ paymentIntentId, chargeId, amount, reason, refundApplicationFee, metadata }) => {
+          try {
+            const params = new URLSearchParams();
+            
+            if (paymentIntentId) params.append('payment_intent', paymentIntentId);
+            if (chargeId) params.append('charge', chargeId);
+            if (amount) params.append('amount', amount.toString());
+            if (reason) params.append('reason', reason);
+            params.append('refund_application_fee', refundApplicationFee.toString());
+            
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
 
-    this.server.tool(
-      'get_advanced_features_info',
-      {},
-      async () => {
-        const info: any = {
-          version: '1.0.0',
-          compatibility: 'Enhanced PocketBase Server',
-          features: {
-            payments: !!this.stripeService,
-            email: !!this.emailService,
-            backend: true,
-            automation: true,
-            components: false, // Phase 3
-            deployment: false  // Phase 4
-          },
-          services: {
-            stripe: this.stripeService ? 'initialized' : 'not configured',
-            email: this.emailService ? 'initialized' : 'not configured',
-            pocketbase: 'initialized'
-          },
-          automationTools: [
-            'register_user_with_automation',
-            'create_subscription_flow', 
-            'process_payment_webhook_with_email',
-            'setup_complete_saas_backend',
-            'cancel_subscription_with_email'
-          ],
-          nextSteps: [] as string[]
-        };
+            const response = await fetch('https://api.stripe.com/v1/refunds', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
 
-        if (!this.stripeService) {
-          info.nextSteps.push('Add STRIPE_SECRET_KEY to enable payment features');
+            const refund = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(refund, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create refund: ${error.message}` }],
+              isError: true
+            };
+          }
         }
-        if (!this.emailService) {
-          info.nextSteps.push('Add email configuration (SMTP or SendGrid) to enable email features');
-        }
-        if (this.stripeService && this.emailService) {
-          info.nextSteps.push('Run setup_complete_saas_backend to initialize everything');
-          info.nextSteps.push('Use automation tools for complete user workflows');
-        }
+      );
 
-        return {
-          content: [{ type: 'text', text: JSON.stringify(info, null, 2) }]
-        };
-      }
-    );
+      // Disputes - Manage payment disputes
+      this.server.tool(
+        'stripe_list_disputes',
+        {
+          limit: z.number().default(10).describe('Number of disputes to return'),
+          created: z.object({
+            gte: z.number().optional(),
+            lte: z.number().optional()
+          }).optional().describe('Filter by creation date')
+        },
+        async ({ limit, created }) => {
+          try {
+            const params = new URLSearchParams({ limit: limit.toString() });
+            
+            if (created?.gte) params.append('created[gte]', created.gte.toString());
+            if (created?.lte) params.append('created[lte]', created.lte.toString());
+
+            const response = await fetch(`https://api.stripe.com/v1/disputes?${params}`, {
+              headers: { 'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+            });
+
+            const disputes = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(disputes, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list disputes: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Transfers - Transfer funds to connected accounts
+      this.server.tool(
+        'stripe_create_transfer',
+        {
+          amount: z.number().describe('Amount in cents'),
+          currency: z.string().default('usd').describe('Currency'),
+          destination: z.string().describe('Connected account ID'),
+          description: z.string().optional().describe('Transfer description'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ amount, currency, destination, description, metadata }) => {
+          try {
+            const params = new URLSearchParams({
+              amount: amount.toString(),
+              currency,
+              destination
+            });
+            
+            if (description) params.append('description', description);
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
+
+            const response = await fetch('https://api.stripe.com/v1/transfers', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const transfer = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(transfer, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create transfer: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Balance - Account balance information
+      this.server.tool(
+        'stripe_get_balance',
+        {},
+        async () => {
+          try {
+            const response = await fetch('https://api.stripe.com/v1/balance', {
+              headers: { 'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+            });
+
+            const balance = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(balance, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to get balance: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Balance Transactions - Transaction history
+      this.server.tool(
+        'stripe_list_balance_transactions',
+        {
+          limit: z.number().default(10).describe('Number of transactions to return'),
+          type: z.enum(['charge', 'refund', 'adjustment', 'application_fee', 'application_fee_refund', 'transfer', 'payment', 'payout', 'payout_failure', 'stripe_fee', 'network_cost']).optional().describe('Transaction type filter'),
+          created: z.object({
+            gte: z.number().optional(),
+            lte: z.number().optional()
+          }).optional().describe('Filter by creation date')
+        },
+        async ({ limit, type, created }) => {
+          try {
+            const params = new URLSearchParams({ limit: limit.toString() });
+            
+            if (type) params.append('type', type);
+            if (created?.gte) params.append('created[gte]', created.gte.toString());
+            if (created?.lte) params.append('created[lte]', created.lte.toString());
+
+            const response = await fetch(`https://api.stripe.com/v1/balance_transactions?${params}`, {
+              headers: { 'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+            });
+
+            const transactions = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(transactions, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list balance transactions: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Events - Webhook events and history
+      this.server.tool(
+        'stripe_list_events',
+        {
+          limit: z.number().default(10).describe('Number of events to return'),
+          type: z.string().optional().describe('Event type filter (e.g., payment_intent.succeeded)'),
+          created: z.object({
+            gte: z.number().optional(),
+            lte: z.number().optional()
+          }).optional().describe('Filter by creation date')
+        },
+        async ({ limit, type, created }) => {
+          try {
+            const params = new URLSearchParams({ limit: limit.toString() });
+            
+            if (type) params.append('type', type);
+            if (created?.gte) params.append('created[gte]', created.gte.toString());
+            if (created?.lte) params.append('created[lte]', created.lte.toString());
+
+            const response = await fetch(`https://api.stripe.com/v1/events?${params}`, {
+              headers: { 'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+            });
+
+            const events = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(events, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to list events: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Accounts - Connected accounts (for platforms)
+      this.server.tool(
+        'stripe_create_account',
+        {
+          type: z.enum(['express', 'standard', 'custom']).describe('Account type'),
+          country: z.string().describe('Country code'),
+          email: z.string().email().optional().describe('Account email'),
+          businessType: z.enum(['individual', 'company']).optional().describe('Business type'),
+          metadata: z.record(z.any()).optional().describe('Additional metadata')
+        },
+        async ({ type, country, email, businessType, metadata }) => {
+          try {
+            const params = new URLSearchParams({
+              type,
+              country
+            });
+            
+            if (email) params.append('email', email);
+            if (businessType) params.append('business_type', businessType);
+            
+            Object.entries(metadata || {}).forEach(([k, v]) => {
+              params.append(`metadata[${k}]`, String(v));
+            });
+
+            const response = await fetch('https://api.stripe.com/v1/accounts', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: params,
+            });
+
+            const account = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(account, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create account: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+
+      // Account Links - Onboarding links for connected accounts
+      this.server.tool(
+        'stripe_create_account_link',
+        {
+          accountId: z.string().describe('Connected account ID'),
+          refreshUrl: z.string().url().describe('URL for user to refresh onboarding'),
+          returnUrl: z.string().url().describe('URL for user after completing onboarding'),
+          type: z.enum(['account_onboarding', 'account_update']).describe('Link type')
+        },
+        async ({ accountId, refreshUrl, returnUrl, type }) => {
+          try {
+            const response = await fetch('https://api.stripe.com/v1/account_links', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                account: accountId,
+                refresh_url: refreshUrl,
+                return_url: returnUrl,
+                type
+              }),
+            });
+
+            const accountLink = await response.json();
+            return { content: [{ type: 'text', text: JSON.stringify(accountLink, null, 2) }] };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Failed to create account link: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+    }
   }
 
   async run() {
