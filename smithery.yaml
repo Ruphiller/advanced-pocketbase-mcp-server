@@ -2,9 +2,9 @@
 
 runtime: "container"
 startCommand:
-  type: "http"
-  configSchema:
-    type: object    required:
+  type: "http"  configSchema:
+    type: object
+    required:
       - pocketbaseUrl
     properties:
       # === REQUIRED CONFIGURATION ===
@@ -77,7 +77,8 @@ startCommand:
       defaultFromEmail:
         type: string
         title: "Default From Email"
-        default: ""        description: "Default sender email address"
+        default: ""
+        description: "Default sender email address"
         
       # === OPTIONAL: APPLICATION SETTINGS ===
       appName:
