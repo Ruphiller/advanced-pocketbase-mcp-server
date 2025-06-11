@@ -102,7 +102,7 @@ interface SubscriptionEvent {
   record: RecordModel;
 }
 
-class PocketBaseServer {
+export class PocketBaseServer {
   private pb: ExtendedPocketBase;
   private _customHeaders: Record<string, string> = {};
 

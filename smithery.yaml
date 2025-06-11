@@ -1,101 +1,103 @@
-# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+# Smithery configuration file: https://smithery.ai/docs/build/project-config/smithery-yaml
 
+runtime: "container"
 startCommand:
-  type: stdio
+  type: "http"
   configSchema:
-    type: object
-    required:
+    type: object    required:
       - pocketbaseUrl
     properties:
       # === REQUIRED CONFIGURATION ===
       pocketbaseUrl:
         type: string
+        title: "PocketBase URL"
         description: "The URL of your PocketBase instance (e.g., http://127.0.0.1:8090)"
         
       # === OPTIONAL: ADMIN CREDENTIALS ===
       pocketbaseAdminEmail:
         type: string
+        title: "Admin Email"
         default: ""
         description: "Admin email for certain operations"
       pocketbaseAdminPassword:
         type: string
+        title: "Admin Password"
         default: ""
         description: "Admin password"
       pocketbaseDataDir:
         type: string
+        title: "Data Directory"
         default: ""
         description: "Custom data directory path"
         
       # === OPTIONAL: STRIPE CONFIGURATION ===
       stripeSecretKey:
         type: string
+        title: "Stripe Secret Key"
         default: ""
         description: "Stripe secret key (sk_test_... for testing, sk_live_... for production)"
       stripeWebhookSecret:
         type: string
+        title: "Stripe Webhook Secret"
         default: ""
         description: "Stripe webhook endpoint secret (whsec_...)"
         
       # === OPTIONAL: EMAIL CONFIGURATION ===
       emailService:
         type: string
+        title: "Email Service"
         default: ""
         enum: ["", "sendgrid", "smtp"]
         description: "Email service provider (sendgrid or smtp)"
       sendgridApiKey:
         type: string
+        title: "SendGrid API Key"
         default: ""
         description: "SendGrid API key (SG....)"
       smtpHost:
         type: string
+        title: "SMTP Host"
         default: ""
         description: "SMTP server hostname (e.g., smtp.gmail.com)"
       smtpPort:
         type: integer
+        title: "SMTP Port"
         default: 587
         description: "SMTP server port (usually 587 for TLS, 465 for SSL, 25 for plain)"
       smtpUser:
         type: string
+        title: "SMTP Username"
         default: ""
         description: "SMTP username/email"
       smtpPass:
         type: string
+        title: "SMTP Password"
         default: ""
         description: "SMTP password or app-specific password"
       defaultFromEmail:
         type: string
-        default: ""
-        description: "Default sender email address"
+        title: "Default From Email"
+        default: ""        description: "Default sender email address"
         
       # === OPTIONAL: APPLICATION SETTINGS ===
       appName:
         type: string
+        title: "Application Name"
         default: ""
         description: "Application name for branding"
       appUrl:
         type: string
+        title: "Application URL"
         default: ""
         description: "Application URL (e.g., https://yourapp.com)"
-        
-  commandFunction: |
-    (config) => ({
-      command: 'node',
-      args: ['build/index.js'],
-      env: {
-        POCKETBASE_URL: config.pocketbaseUrl,
-        POCKETBASE_ADMIN_EMAIL: config.pocketbaseAdminEmail || '',
-        POCKETBASE_ADMIN_PASSWORD: config.pocketbaseAdminPassword || '',
-        POCKETBASE_DATA_DIR: config.pocketbaseDataDir || '',
-        STRIPE_SECRET_KEY: config.stripeSecretKey || '',
-        STRIPE_WEBHOOK_SECRET: config.stripeWebhookSecret || '',
-        EMAIL_SERVICE: config.emailService || '',
-        SENDGRID_API_KEY: config.sendgridApiKey || '',
-        SMTP_HOST: config.smtpHost || '',
-        SMTP_PORT: config.smtpPort ? config.smtpPort.toString() : '',
-        SMTP_USER: config.smtpUser || '',
-        SMTP_PASS: config.smtpPass || '',
-        DEFAULT_FROM_EMAIL: config.defaultFromEmail || '',
-        APP_NAME: config.appName || '',
-        APP_URL: config.appUrl || ''
-      }
-    })
+  exampleConfig:
+    pocketbaseUrl: "http://127.0.0.1:8090"
+    stripeSecretKey: "sk_test_..."
+    emailService: "sendgrid"
+    sendgridApiKey: "SG...."
+    defaultFromEmail: "noreply@yourapp.com"
+    appName: "My SaaS App"
+    appUrl: "https://myapp.com"
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."

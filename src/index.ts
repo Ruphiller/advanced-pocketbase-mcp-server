@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import PocketBase from 'pocketbase';
 import { z } from 'zod';
 import { EventSource } from 'eventsource'; // Import the polyfill using named import
@@ -4652,7 +4653,6 @@ class PocketBaseServer {
     // Simple PDF formatting - in a real implementation, you'd use a PDF library
     return `PDF Report: ${title}\n${JSON.stringify(data, null, 2)}`;
   }
-
   async run() {
     console.error('[MCP DEBUG] Starting PocketBase MCP server...');
     
@@ -4671,7 +4671,99 @@ class PocketBaseServer {
       console.error(`[MCP DEBUG] Error connecting server: ${error}`);
     }
   }
+  async runHttp(port: number = 3000) {
+    console.error(`[MCP DEBUG] Starting PocketBase MCP HTTP server on port ${port}...`);
+    
+    // Log registered tools for debugging
+    // @ts-ignore
+    const toolNames = Object.keys(this.server._tools || {});
+    console.error(`[MCP DEBUG] Registered tools: ${JSON.stringify(toolNames, null, 2)}`);
+    
+    // Import express and create app
+    const express = require('express');
+    const app = express();
+    app.use(express.json());
+
+    // Store transports by session ID
+    const transports: Record<string, any> = {};
+
+    // Health check endpoint
+    app.get('/health', (req: any, res: any) => {
+      res.json({ 
+        status: 'healthy', 
+        server: 'pocketbase-mcp-server',
+        version: '3.0.0',
+        pocketbaseUrl: this.pb.baseUrl,
+        isAuthenticated: this.pb.authStore?.isValid || false
+      });
+    });
+
+    // SSE endpoint for MCP connection
+    app.get('/mcp', async (req: any, res: any) => {
+      console.log('Received GET request to /mcp - establishing SSE connection');
+      
+      try {
+        const transport = new SSEServerTransport('/mcp', res);
+        const sessionId = transport.sessionId;
+        transports[sessionId] = transport;
+        
+        res.on("close", () => {
+          console.log(`SSE connection closed for session ${sessionId}`);
+          delete transports[sessionId];
+        });
+
+        await this.server.connect(transport);
+        console.error(`[MCP DEBUG] SSE transport connected for session ${sessionId}`);
+      } catch (error) {
+        console.error(`[MCP DEBUG] Error establishing SSE connection: ${error}`);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to establish SSE connection' });
+        }
+      }
+    });
+
+    // Start the server
+    app.listen(port, () => {
+      console.error(`[MCP DEBUG] PocketBase MCP HTTP server running on port ${port}`);
+      console.log(`
+==============================================
+PocketBase MCP Server - HTTP Mode
+Port: ${port}
+Health Check: http://localhost:${port}/health
+MCP Endpoint: http://localhost:${port}/mcp
+==============================================
+`);
+    });
+
+    // Handle server shutdown
+    process.on('SIGINT', async () => {
+      console.log('Shutting down server...');
+      for (const sessionId in transports) {
+        try {
+          console.log(`Closing transport for session ${sessionId}`);
+          await transports[sessionId].close();
+          delete transports[sessionId];
+        } catch (error) {
+          console.error(`Error closing transport for session ${sessionId}:`, error);
+        }
+      }
+      console.log('Server shutdown complete');
+      process.exit(0);
+    });
+  }
 }
 
+// Create and run server
 const server = new PocketBaseServer();
-server.run().catch(console.error);
+
+// Check if we should run in HTTP mode (for Smithery container deployment)
+if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
+  // Get port from environment variable or default to 3000
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  
+  // Run HTTP server for Smithery compatibility
+  server.runHttp(port).catch(console.error);
+} else {
+  // Run stdio server for local development
+  server.run().catch(console.error);
+}
