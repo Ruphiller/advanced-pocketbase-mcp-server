@@ -2,14 +2,20 @@ import nodemailer from 'nodemailer';
 import Handlebars from 'handlebars';
 import PocketBase from 'pocketbase';
 import { EmailTemplate, EmailLog } from '../types/stripe.js';
+import { SendGridService, SendGridEnhancedOptions } from './sendgrid.js';
 
 export class EmailService {
   private transporter!: nodemailer.Transporter;
   private pb: PocketBase;
-
+  private sendGridService?: SendGridService;
   constructor(pb: PocketBase) {
     this.pb = pb;
     this.setupTransporter();
+    
+    // Initialize SendGrid service if using SendGrid
+    if (process.env.EMAIL_SERVICE === 'sendgrid') {
+      this.sendGridService = new SendGridService(pb);
+    }
   }
 
   private setupTransporter() {
@@ -221,13 +227,173 @@ export class EmailService {
           success: false,
           message: 'Email connection failed verification'
         };
-      }
-    } catch (error: any) {
+      }    } catch (error: any) {
       return {
         success: false,
         message: `Email connection test failed: ${error.message}`
       };
     }
+  }
+
+  // Enhanced test connection that includes SendGrid-specific features
+  async testEnhancedConnection(): Promise<{ success: boolean; message: string; features?: string[] }> {
+    if (this.sendGridService?.isReady()) {
+      return await this.sendGridService.testSendGridConnection();
+    } else {
+      const basicTest = await this.testConnection();
+      return {
+        ...basicTest,
+        features: ['Basic SMTP', 'Template Support', 'Email Logging']
+      };
+    }
+  }
+
+  // Enhanced email sending with optional SendGrid features
+  async sendEnhancedTemplatedEmail(data: {
+    template: string;
+    to: string;
+    from?: string;
+    variables?: Record<string, any>;
+    customSubject?: string;
+    // SendGrid-specific options (ignored for SMTP)
+    categories?: string[];
+    customArgs?: Record<string, string>;
+    sendAt?: Date;
+    trackingSettings?: {
+      clickTracking?: boolean;
+      openTracking?: boolean;
+    };
+    sandboxMode?: boolean;
+  }): Promise<EmailLog> {
+    // If using SendGrid and enhanced features are requested, use SendGrid service
+    if (this.sendGridService?.isReady() && (data.categories || data.customArgs || data.sendAt || data.trackingSettings)) {
+      try {
+        // Get template
+        const template = await this.getTemplate(data.template);
+        
+        // Compile templates
+        const subjectTemplate = Handlebars.compile(data.customSubject || template.subject);
+        const htmlTemplate = Handlebars.compile(template.htmlContent);
+        const textTemplate = template.textContent ? Handlebars.compile(template.textContent) : null;
+
+        // Apply variables
+        const variables = data.variables || {};
+        const subject = subjectTemplate(variables);
+        const html = htmlTemplate(variables);
+        const text = textTemplate ? textTemplate(variables) : undefined;
+
+        // Prepare SendGrid options
+        const sendGridOptions: SendGridEnhancedOptions = {};
+        if (data.categories) sendGridOptions.categories = data.categories;
+        if (data.customArgs) sendGridOptions.customArgs = data.customArgs;
+        if (data.sendAt) sendGridOptions.sendAt = Math.floor(data.sendAt.getTime() / 1000);
+        if (data.sandboxMode) sendGridOptions.sandboxMode = data.sandboxMode;
+        if (data.trackingSettings) {
+          sendGridOptions.trackingSettings = {
+            clickTracking: data.trackingSettings.clickTracking ? { enable: true } : undefined,
+            openTracking: data.trackingSettings.openTracking ? { enable: true } : undefined
+          };
+        }
+
+        return await this.sendGridService.sendEnhancedEmail({
+          to: data.to,
+          from: data.from,
+          subject,
+          html,
+          text,
+          options: sendGridOptions
+        });
+      } catch (error: any) {
+        // Fallback to regular method if SendGrid fails
+        console.warn('SendGrid enhanced send failed, falling back to regular method:', error.message);
+        return await this.sendTemplatedEmail({
+          template: data.template,
+          to: data.to,
+          from: data.from,
+          variables: data.variables,
+          customSubject: data.customSubject
+        });
+      }
+    } else {
+      // Use regular templated email method
+      return await this.sendTemplatedEmail({
+        template: data.template,
+        to: data.to,
+        from: data.from,
+        variables: data.variables,
+        customSubject: data.customSubject
+      });
+    }
+  }
+
+  // Schedule email sending (SendGrid only, falls back to immediate send for SMTP)
+  async scheduleTemplatedEmail(data: {
+    template: string;
+    to: string;
+    from?: string;
+    variables?: Record<string, any>;
+    customSubject?: string;
+    sendAt: Date;
+    categories?: string[];
+  }): Promise<EmailLog> {
+    if (this.sendGridService?.isReady()) {
+      try {
+        // Get template
+        const template = await this.getTemplate(data.template);
+        
+        // Compile templates
+        const subjectTemplate = Handlebars.compile(data.customSubject || template.subject);
+        const htmlTemplate = Handlebars.compile(template.htmlContent);
+        const textTemplate = template.textContent ? Handlebars.compile(template.textContent) : null;
+
+        // Apply variables
+        const variables = data.variables || {};
+        const subject = subjectTemplate(variables);
+        const html = htmlTemplate(variables);
+        const text = textTemplate ? textTemplate(variables) : undefined;
+
+        return await this.sendGridService.scheduleEmail({
+          to: data.to,
+          from: data.from,
+          subject,
+          html,
+          text,
+          sendAt: data.sendAt,
+          options: {
+            categories: data.categories
+          }
+        });
+      } catch (error: any) {
+        console.warn('SendGrid scheduling failed, sending immediately:', error.message);
+        // Fallback to immediate send
+        return await this.sendTemplatedEmail({
+          template: data.template,
+          to: data.to,
+          from: data.from,
+          variables: data.variables,
+          customSubject: data.customSubject
+        });
+      }
+    } else {
+      // SMTP doesn't support scheduling, send immediately
+      return await this.sendTemplatedEmail({
+        template: data.template,
+        to: data.to,
+        from: data.from,
+        variables: data.variables,
+        customSubject: data.customSubject
+      });
+    }
+  }
+
+  // Get SendGrid service instance (for advanced operations)
+  getSendGridService(): SendGridService | undefined {
+    return this.sendGridService;
+  }
+
+  // Check if enhanced features are available
+  hasEnhancedFeatures(): boolean {
+    return this.sendGridService?.isReady() || false;
   }
 
   // Pre-built email templates

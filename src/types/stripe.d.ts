@@ -73,6 +73,10 @@ export interface EmailLog {
   status: 'sent' | 'failed' | 'pending';
   error?: string;
   variables?: Record<string, any>;
+  // SendGrid-specific fields
+  sendgrid_message_id?: string;
+  categories?: string[];
+  custom_args?: Record<string, string>;
   created: string;
   updated: string;
 }

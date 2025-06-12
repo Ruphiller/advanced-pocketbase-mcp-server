@@ -91,7 +91,8 @@ startCommand:
         type: string
         title: "Application URL"
         default: ""
-        description: "Application URL (e.g., https://yourapp.com)"  exampleConfig:
+        description: "Application URL (e.g., https://yourapp.com)" 
+        exampleConfig:
     pocketbaseUrl: "http://127.0.0.1:8090"
     stripeSecretKey: "sk_test_..."
     emailService: "sendgrid"
