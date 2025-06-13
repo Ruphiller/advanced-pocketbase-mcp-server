@@ -194,9 +194,7 @@ class PocketBaseServer {
     interface CollectionRecord {
       id: string;
       [key: string]: any;
-    }
-
-    // Server info resource
+    }    // Server info resource
     this.server.resource(
       "server-info",
       "pocketbase://info",
@@ -206,8 +204,10 @@ class PocketBaseServer {
             contents: [{
               uri: uri.href,
               text: JSON.stringify({
-                url: this.pb.baseUrl,
-                isAuthenticated: this.pb.authStore?.isValid || false
+                url: this.pb.baseUrl, // Using baseUrl for backward compatibility, will update later
+                baseURL: this.pb.baseUrl, // Modern property name
+                isAuthenticated: this.pb.authStore?.isValid || false,
+                sdkVersion: '0.26.1'
               }, null, 2)
             }]
           };
@@ -360,15 +360,14 @@ class PocketBaseServer {
       {},
       async () => {
         try {
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                url: this.pb.baseUrl,
-                isAuthenticated: this.pb.authStore?.isValid || false,
-                version: '0.1.0'
-              }, null, 2)
-            }]
+          return {              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  url: this.pb.baseUrl,
+                  isAuthenticated: this.pb.authStore?.isValid || false,
+                  version: '0.1.0'
+                }, null, 2)
+              }]
           };
         } catch (error: any) {
           return {
@@ -458,7 +457,7 @@ class PocketBaseServer {
           };
         }
       }
-    );// Record management tools
+    );// Record management tools with enhanced error handling
     this.server.tool(
       'create_record',
       {
@@ -467,12 +466,35 @@ class PocketBaseServer {
       },
       async ({ collection, data }: { collection: string; data: Record<string, any> }) => {
         try {
+          // Create record with type safety
           const result = await this.pb.collection(collection).create(data);
           return {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-          };        } catch (error: any) {
+          };
+        } catch (error: any) {
+          // Enhanced error handling with ClientResponseError patterns
+          let errorMessage = error.message;
+          let errorDetails = null;
+          let statusCode = error.status || 'unknown';
+          
+          // Check if it's a PocketBase ClientResponseError
+          if (error.response && error.data) {
+            errorMessage = error.data.message || error.message;
+            errorDetails = error.data;
+            statusCode = error.status;
+          }
+          
           return {
-            content: [{ type: 'text', text: `Failed to create record: ${error.message}` }],
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Failed to create record',
+                message: errorMessage,
+                statusCode: statusCode,
+                collection: collection,
+                details: errorDetails
+              }, null, 2)
+            }],
             isError: true
           };
         }
@@ -618,19 +640,22 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'list_records',
       {
         collection: z.string().describe('Collection name'),
-        filter: z.string().optional().describe('Filter query'),
-        sort: z.string().optional().describe('Sort field and direction'),
-        page: z.number().optional().describe('Page number'),
-        perPage: z.number().optional().describe('Items per page')
+        filter: z.string().optional().describe('Filter query (use safe parameter binding with build_filter tool)'),
+        sort: z.string().optional().describe('Sort field and direction (e.g., "-created" for desc, "+name" for asc)'),
+        page: z.number().optional().describe('Page number (1-based)'),
+        perPage: z.number().optional().describe('Items per page (max 500)')
       },
       async ({ collection, filter, sort, page = 1, perPage = 50 }) => {
         try {
+          // Validate pagination parameters
+          if (page < 1) page = 1;
+          if (perPage > 500) perPage = 500;
+          if (perPage < 1) perPage = 1;
+          
           const options: any = {};
           if (filter) options.filter = filter;
           if (sort) options.sort = sort;
@@ -640,15 +665,31 @@ class PocketBaseServer {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
           };
         } catch (error: any) {
+          // Enhanced error handling
+          let errorMessage = error.message;
+          let statusCode = error.status || 'unknown';
+          
+          if (error.response && error.data) {
+            errorMessage = error.data.message || error.message;
+            statusCode = error.status;
+          }
+          
           return {
-            content: [{ type: 'text', text: `Failed to list records: ${error.message}` }],
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Failed to list records',
+                message: errorMessage,
+                statusCode: statusCode,
+                collection: collection,
+                parameters: { page, perPage, filter, sort }
+              }, null, 2)
+            }],
             isError: true
           };
         }
       }
-    );
-
-    this.server.tool(
+    );this.server.tool(
       'update_record',
       {
         collection: z.string().describe('Collection name'),
@@ -662,8 +703,26 @@ class PocketBaseServer {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
           };
         } catch (error: any) {
+          // Enhanced error handling with ClientResponseError patterns
+          let errorMessage = error.message;
+          let statusCode = error.status || 'unknown';
+          
+          if (error.response && error.data) {
+            errorMessage = error.data.message || error.message;
+            statusCode = error.status;
+          }
+          
           return {
-            content: [{ type: 'text', text: `Failed to update record: ${error.message}` }],
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Failed to update record',
+                message: errorMessage,
+                statusCode: statusCode,
+                collection: collection,
+                recordId: id
+              }, null, 2)
+            }],
             isError: true
           };
         }
@@ -689,9 +748,7 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Authentication tools
+    );    // Authentication tools
     this.server.tool(
       'authenticate_user',
       {
@@ -722,13 +779,31 @@ class PocketBaseServer {
             content: [{ type: 'text', text: JSON.stringify(authData, null, 2) }]
           };
         } catch (error: any) {
+          // Enhanced error handling with ClientResponseError patterns
+          let errorMessage = error.message;
+          let statusCode = error.status || 'unknown';
+          
+          // Check if it's a PocketBase ClientResponseError
+          if (error.response && error.data) {
+            errorMessage = error.data.message || error.message;
+            statusCode = error.status;
+          }
+          
           return {
-            content: [{ type: 'text', text: `Authentication failed: ${error.message}` }],
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Authentication failed',
+                message: errorMessage,
+                statusCode: statusCode,
+                collection: isAdmin ? '_superusers' : collection
+              }, null, 2)
+            }],
             isError: true
           };
         }
       }
-    );    this.server.tool(
+    );this.server.tool(
       'authenticate_with_oauth2',
       {
         provider: z.string().describe('OAuth2 provider name'),
@@ -1508,25 +1583,41 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Filter builder tool
+    );    // Filter builder tool with safe parameter binding (modern SDK pattern)
     this.server.tool(
       'build_filter',
       {
-        expression: z.string().describe('Filter expression with placeholders'),
-        params: z.record(z.any()).describe('Parameter values')
+        expression: z.string().describe('Filter expression with placeholders like "name = {:name} && active = {:active}"'),
+        params: z.record(z.any()).describe('Parameter values for safe binding (prevents SQL injection)')
       },
       async ({ expression, params }) => {
         try {
+          // Use modern PocketBase filter method for safe parameter binding
+          // This is equivalent to pb.filter() method in SDK v0.26.1
           // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
           const filter = this.pb.filter(expression, params);
           return {
-            content: [{ type: 'text', text: JSON.stringify({ filter }, null, 2) }]
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({ 
+                filter,
+                method: 'pb.filter()',
+                description: 'Safe parameter binding prevents injection attacks',
+                example: 'name = {:name} && active = {:active}',
+                parameters: params
+              }, null, 2) 
+            }]
           };
         } catch (error: any) {
           return {
-            content: [{ type: 'text', text: `Failed to build filter: ${error.message}` }],
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Failed to build filter',
+                message: error.message,
+                tip: 'Use placeholders like {:param} for safe parameter binding'
+              }, null, 2)
+            }],
             isError: true
           };
         }
@@ -3892,9 +3983,341 @@ class PocketBaseServer {
           };
         }
       }
+    );    // === END HIGH-LEVEL AUTOMATION WORKFLOW TOOLS ===
+
+    // === MISSING POCKETBASE SDK v0.26.1 FEATURES ===
+    // These tools implement features from the latest PocketBase SDK that weren't available
+    
+    // Enhanced error handling with ClientResponseError patterns
+    this.server.tool(
+      'pb_parse_error',
+      {
+        error: z.any().describe('Error object to parse')
+      },
+      async ({ error }) => {
+        try {
+          const parsedError = {
+            message: error.message || 'Unknown error',
+            status: error.status || 'unknown',
+            statusCode: error.status || 'unknown',
+            data: error.data || null,
+            isClientResponseError: !!(error.response && error.data),
+            originalResponse: error.response || null,
+            url: error.url || 'unknown',
+            timestamp: new Date().toISOString()
+          };
+          
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify(parsedError, null, 2)
+            }]
+          };
+        } catch (parseError: any) {
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Failed to parse error',
+                message: parseError.message,
+                originalError: error
+              }, null, 2)
+            }],
+            isError: true
+          };
+        }
+      }
     );
 
-    // === END HIGH-LEVEL AUTOMATION WORKFLOW TOOLS ===
+    // Modern baseURL property access (SDK v0.26.1)
+    this.server.tool(
+      'pb_get_base_url',
+      {},
+      async () => {
+        try {
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                baseUrl: this.pb.baseUrl, // Legacy property (still works)
+                baseURL: this.pb.baseUrl, // Modern property name in v0.26.1
+                note: 'Use baseURL property in latest SDK versions for consistency'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Failed to get base URL',
+                message: error.message
+              }, null, 2)
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Safe parameter binding (modern filter method)
+    this.server.tool(
+      'pb_safe_filter',
+      {
+        expression: z.string().describe('Filter expression with placeholders like "name = {:name}"'),
+        params: z.record(z.any()).describe('Parameters for safe binding')
+      },
+      async ({ expression, params }) => {
+        try {
+          // This is equivalent to the pb.filter() method in SDK v0.26.1
+          // @ts-ignore - Modern SDK method for safe parameter binding
+          const safeFilter = this.pb.filter(expression, params);
+          
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                safeFilter,
+                expression,
+                params,
+                method: 'pb.filter()',
+                security: 'Prevents SQL injection through parameter binding'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Failed to create safe filter',
+                message: error.message,
+                tip: 'Use {:param} syntax for parameter placeholders'
+              }, null, 2)
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Enhanced record retrieval with getFirstListItem()
+    this.server.tool(
+      'pb_get_first_list_item',
+      {
+        collection: z.string().describe('Collection name'),
+        filter: z.string().describe('Filter expression'),
+        sort: z.string().optional().describe('Sort expression'),
+        expand: z.string().optional().describe('Relations to expand')
+      },
+      async ({ collection, filter, sort, expand }) => {
+        try {
+          const options: any = { filter };
+          if (sort) options.sort = sort;
+          if (expand) options.expand = expand;
+          
+          // Enhanced method available in latest SDK
+          const record = await this.pb.collection(collection).getFirstListItem(filter, options);
+          
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                record,
+                method: 'getFirstListItem()',
+                note: 'More efficient than getList() when you only need the first matching record'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Failed to get first list item',
+                message: error.message,
+                collection,
+                filter
+              }, null, 2)
+            }],
+            isError: true
+          };
+        }
+      }
+    );    // Health service simulation (PocketBase health endpoint)
+    this.server.tool(
+      'pb_health_check',
+      {},
+      async () => {
+        try {
+          const healthStatus: {
+            timestamp: string;
+            status: string;
+            checks: {
+              database?: { status: string; message: string };
+              auth?: { status: string; message: string };
+              collections?: { status: string; message: string };
+            };
+          } = {
+            timestamp: new Date().toISOString(),
+            status: 'checking',
+            checks: {}
+          };
+          
+          // Check database connectivity
+          try {
+            await this.pb.collections.getList(1, 1);
+            healthStatus.checks.database = { status: 'healthy', message: 'Database accessible' };
+          } catch (error: any) {
+            healthStatus.checks.database = { status: 'unhealthy', message: error.message };
+          }
+          
+          // Check auth status
+          healthStatus.checks.auth = {
+            status: this.pb.authStore.isValid ? 'healthy' : 'unauthenticated',
+            message: this.pb.authStore.isValid ? 'Authenticated' : 'No valid authentication'
+          };
+          
+          // Check collections access
+          try {
+            const collections = await this.pb.collections.getList(1, 5);
+            healthStatus.checks.collections = { 
+              status: 'healthy', 
+              message: `${collections.items.length} collections accessible` 
+            };
+          } catch (error: any) {
+            healthStatus.checks.collections = { status: 'limited', message: error.message };
+          }
+          
+          // Overall status
+          const allHealthy = Object.values(healthStatus.checks).every((check: any) => check.status === 'healthy');
+          healthStatus.status = allHealthy ? 'healthy' : 'degraded';
+          
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify(healthStatus, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Health check failed',
+                message: error.message,
+                status: 'unhealthy'
+              }, null, 2)
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Enhanced impersonation with duration control
+    this.server.tool(
+      'pb_impersonate_with_duration',
+      {
+        userId: z.string().describe('User ID to impersonate'),
+        duration: z.number().optional().default(3600).describe('Impersonation duration in seconds'),
+        collection: z.string().optional().default('users').describe('Collection name')
+      },
+      async ({ userId, duration, collection }) => {
+        try {
+          // Standard impersonation
+          const authData = await this.pb.collection(collection).impersonate(userId, duration);
+          
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                ...authData,
+                impersonationDuration: duration,
+                expiresAt: new Date(Date.now() + (duration * 1000)).toISOString(),
+                note: 'Enhanced impersonation with duration control'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Enhanced impersonation failed',
+                message: error.message,
+                userId,
+                duration,
+                collection
+              }, null, 2)
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Collection truncate operation
+    this.server.tool(
+      'pb_truncate_collection',
+      {
+        collection: z.string().describe('Collection name to truncate (delete all records)'),
+        confirm: z.boolean().describe('Confirmation that you want to delete ALL records')
+      },
+      async ({ collection, confirm }) => {
+        try {
+          if (!confirm) {
+            return {
+              content: [{ 
+                type: 'text', 
+                text: JSON.stringify({
+                  error: 'Truncate operation cancelled',
+                  message: 'Set confirm=true to proceed with deleting all records',
+                  collection
+                }, null, 2)
+              }],
+              isError: true
+            };
+          }
+          
+          // Get all records and delete them (since there's no native truncate)
+          const allRecords = await this.pb.collection(collection).getFullList();
+          const deletedCount = allRecords.length;
+          
+          // Delete all records
+          for (const record of allRecords) {
+            await this.pb.collection(collection).delete(record.id);
+          }
+          
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                success: true,
+                collection,
+                deletedRecords: deletedCount,
+                message: `Successfully truncated collection ${collection}`,
+                warning: 'This operation cannot be undone'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ 
+              type: 'text', 
+              text: JSON.stringify({
+                error: 'Truncate operation failed',
+                message: error.message,
+                collection
+              }, null, 2)
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === END MISSING POCKETBASE SDK FEATURES ===
   }
 
   // Utility methods for automation features
