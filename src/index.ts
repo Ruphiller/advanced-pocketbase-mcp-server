@@ -449,20 +449,22 @@ class PocketBaseServer {
                 type: 'text',
                 text: JSON.stringify(discoveredCollections, null, 2)
               }]
-            };
-          }        } catch (error: any) {
+            };          }
+        } catch (error: any) {
           return {
             content: [{ type: 'text', text: `Failed to list collections: ${error.message}` }],
             isError: true
           };
         }
       }
-    );// Record management tools with enhanced error handling
+    );
+
+    // Record management tools with enhanced error handling
     this.server.tool(
       'create_record',
       {
-        collection: z.string().describe('Collection name'),
-        data: z.record(z.any()).describe('Record data')
+        collection: z.string().describe('Collection name where to create the record (e.g., "users", "posts", "products")'),
+        data: z.record(z.any()).describe('Record data object with field values. Required fields must be included. Use proper data types (string, number, boolean, array, object) matching the collection schema.')
       },
       async ({ collection, data }: { collection: string; data: Record<string, any> }) => {
         try {
@@ -643,18 +645,17 @@ class PocketBaseServer {
     );    this.server.tool(
       'list_records',
       {
-        collection: z.string().describe('Collection name'),
-        filter: z.string().optional().describe('Filter query (use safe parameter binding with build_filter tool)'),
-        sort: z.string().optional().describe('Sort field and direction (e.g., "-created" for desc, "+name" for asc)'),
-        page: z.number().optional().describe('Page number (1-based)'),
-        perPage: z.number().optional().describe('Items per page (max 500)')
-      },
-      async ({ collection, filter, sort, page = 1, perPage = 50 }) => {
+        collection: z.string().describe('Collection name to query (e.g., "users", "posts", "products")'),
+        filter: z.string().optional().describe('PocketBase filter expression (e.g., "created >= \'2024-01-01\'" or "status = \'active\'"). Use build_filter tool for safe parameter binding to prevent injection.'),
+        sort: z.string().optional().describe('Sort expression: field name with optional prefix (- for desc, + for asc). Examples: "-created", "+name", "title,-updated"'),
+        page: z.number().optional().describe('Page number for pagination (1-based, minimum 1)'),
+        perPage: z.number().optional().describe('Number of records per page (1-500, default 50 for performance)')
+      },      async ({ collection, filter, sort, page = 1, perPage = 50 }) => {
         try {
           // Validate pagination parameters
-          if (page < 1) page = 1;
-          if (perPage > 500) perPage = 500;
-          if (perPage < 1) perPage = 1;
+          if (typeof page === 'number' && page < 1) page = 1;
+          if (typeof perPage === 'number' && perPage > 500) perPage = 500;
+          if (typeof perPage === 'number' && perPage < 1) perPage = 1;
           
           const options: any = {};
           if (filter) options.filter = filter;
@@ -689,12 +690,12 @@ class PocketBaseServer {
           };
         }
       }
-    );this.server.tool(
+    );    this.server.tool(
       'update_record',
       {
-        collection: z.string().describe('Collection name'),
-        id: z.string().describe('Record ID'),
-        data: z.record(z.any()).describe('Updated record data')
+        collection: z.string().describe('Collection name where the record exists (e.g., "users", "posts", "products")'),
+        id: z.string().describe('Unique identifier of the record to update (15-character string like "abc123def456xyz")'),
+        data: z.record(z.any()).describe('Object containing the fields to update. Only provide fields you want to change. System fields (id, created, updated) cannot be modified.')
       },
       async ({ collection, id, data }) => {
         try {
@@ -727,13 +728,11 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'delete_record',
       {
-        collection: z.string().describe('Collection name'),
-        id: z.string().describe('Record ID')
+        collection: z.string().describe('Collection name where the record exists (e.g., "users", "posts", "products")'),
+        id: z.string().describe('Unique identifier of the record to delete (15-character string). Warning: This operation cannot be undone!')
       },
       async ({ collection, id }) => {
         try {
@@ -753,10 +752,10 @@ class PocketBaseServer {
       'authenticate_user',
       {
         // Make email and password optional to allow using env vars when isAdmin=true
-        email: z.string().optional().describe('User email (required unless isAdmin=true and env vars are set)'),
-        password: z.string().optional().describe('User password (required unless isAdmin=true and env vars are set)'),
-        collection: z.string().optional().default('users').describe('Collection name'),
-        isAdmin: z.boolean().optional().default(false).describe('Whether to authenticate as an admin')
+        email: z.string().optional().describe('User email address for authentication. Required unless authenticating as admin with environment variables set.'),
+        password: z.string().optional().describe('User password for authentication. Required unless authenticating as admin with environment variables set.'),
+        collection: z.string().optional().default('users').describe('Collection name for user authentication (default: "users"). Use "_superusers" for admin auth or specify custom user collections.'),
+        isAdmin: z.boolean().optional().default(false).describe('Set to true to authenticate as administrator using POCKETBASE_ADMIN_EMAIL and POCKETBASE_ADMIN_PASSWORD environment variables.')
       },
       async ({ email, password, collection, isAdmin }) => {
         try {
@@ -803,15 +802,15 @@ class PocketBaseServer {
           };
         }
       }
-    );this.server.tool(
+    );    this.server.tool(
       'authenticate_with_oauth2',
       {
-        provider: z.string().describe('OAuth2 provider name'),
-        code: z.string().describe('Authorization code'),
-        codeVerifier: z.string().describe('PKCE code verifier'),
-        redirectUrl: z.string().describe('Redirect URL'),
-        collection: z.string().optional().default('users').describe('Collection name'),
-        createData: z.record(z.any()).optional().describe('Additional user data for new records')
+        provider: z.string().describe('OAuth2 provider name (e.g., "google", "github", "discord", "facebook"). Must be configured in PocketBase auth settings.'),
+        code: z.string().describe('Authorization code received from OAuth2 provider callback URL after user grants permission.'),
+        codeVerifier: z.string().describe('PKCE code verifier used for secure OAuth2 flow. Should match the code_challenge sent in authorization request.'),
+        redirectUrl: z.string().describe('Redirect URL that matches the one registered with OAuth2 provider and used in authorization request.'),
+        collection: z.string().optional().default('users').describe('Collection where user records are stored (default: "users"). Must have OAuth2 authentication enabled.'),
+        createData: z.record(z.any()).optional().describe('Additional user profile data to set when creating new user accounts (name, avatar, etc.). Applied only for new registrations.')
       },
       async ({ provider, code, codeVerifier, redirectUrl, collection, createData = {} }) => {
         try {
@@ -830,12 +829,12 @@ class PocketBaseServer {
           };
         }
       }
-    );// Authenticate with OTP (updated for latest SDK)
+    );    // Authenticate with OTP (updated for latest SDK)
     this.server.tool(
       'authenticate_with_otp',
       {
-        email: z.string().describe('User email'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        email: z.string().email().describe('User email address to send one-time password (OTP) to. Must be a valid email format and exist in the specified collection.'),
+        collection: z.string().optional().default('users').describe('Collection containing user records (default: "users"). Must have OTP authentication enabled in PocketBase settings.')
       },
       async ({ email, collection }) => {
         try {
@@ -851,12 +850,10 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'auth_refresh',
       {
-        collection: z.string().optional().default('users').describe('Collection name')
+        collection: z.string().optional().default('users').describe('Collection name for the authenticated user (default: "users"). Must match the collection used during initial authentication.')
       },
       async ({ collection }) => {
         try {
@@ -871,14 +868,12 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Email verification tools
+    );    // Email verification tools
     this.server.tool(
       'request_verification',
       {
-        email: z.string().describe('User email'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        email: z.string().email().describe('User email address to send verification email to. Must be a valid email format and exist in the specified collection.'),
+        collection: z.string().optional().default('users').describe('Collection containing user records (default: "users"). Email verification must be enabled in collection settings.')
       },
       async ({ email, collection }) => {
         try {
@@ -893,13 +888,11 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'confirm_verification',
       {
-        token: z.string().describe('Verification token'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        token: z.string().describe('Email verification token received via email. This is a secure token that expires after a set time period.'),
+        collection: z.string().optional().default('users').describe('Collection containing the user record to verify (default: "users"). Must match the collection used in verification request.')
       },
       async ({ token, collection }) => {
         try {
@@ -914,14 +907,12 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Password reset tools
+    );    // Password reset tools
     this.server.tool(
       'request_password_reset',
       {
-        email: z.string().describe('User email'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        email: z.string().email().describe('User email address to send password reset link to. Must be a valid email format and exist in the specified collection.'),
+        collection: z.string().optional().default('users').describe('Collection containing user records (default: "users"). Password reset must be enabled in collection settings.')
       },
       async ({ email, collection }) => {
         try {
@@ -936,15 +927,13 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'confirm_password_reset',
       {
-        token: z.string().describe('Reset token'),
-        password: z.string().describe('New password'),
-        passwordConfirm: z.string().describe('Confirm new password'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        token: z.string().describe('Password reset token received via email. This is a secure token that expires after a set time period (usually 30 minutes).'),
+        password: z.string().min(8).describe('New password for the user account. Must meet minimum security requirements (typically 8+ characters).'),
+        passwordConfirm: z.string().min(8).describe('Confirmation of the new password. Must exactly match the password field to prevent typos.'),
+        collection: z.string().optional().default('users').describe('Collection containing the user record (default: "users"). Must match the collection used in reset request.')
       },
       async ({ token, password, passwordConfirm, collection }) => {
         try {
@@ -961,12 +950,12 @@ class PocketBaseServer {
       }
     );
 
-    // Email change tools
+    // Email change tools    // Email change tools
     this.server.tool(
       'request_email_change',
       {
-        newEmail: z.string().describe('New email address'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        newEmail: z.string().email().describe('New email address to change to. Must be a valid email format and not already used by another user.'),
+        collection: z.string().optional().default('users').describe('Collection containing the user record (default: "users"). Email change must be enabled in collection settings.')
       },
       async ({ newEmail, collection }) => {
         try {
@@ -981,14 +970,12 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'confirm_email_change',
       {
-        token: z.string().describe('Email change token'),
-        password: z.string().describe('Current password for confirmation'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        token: z.string().describe('Email change confirmation token received via email. This is a secure token that expires after a set time period.'),
+        password: z.string().describe('Current password for security confirmation. Required to prevent unauthorized email changes.'),
+        collection: z.string().optional().default('users').describe('Collection containing the user record (default: "users"). Must match the collection used in email change request.')
       },
       async ({ token, password, collection }) => {
         try {
@@ -1003,14 +990,12 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // User management tools
+    );    // User management tools
     this.server.tool(
       'impersonate_user',
       {
-        userId: z.string().describe('ID of the user to impersonate'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        userId: z.string().describe('Unique identifier of the user to impersonate (15-character string). Requires admin privileges and appropriate permissions.'),
+        collection: z.string().optional().default('users').describe('Collection containing the user to impersonate (default: "users"). Must be accessible by current admin user.')
       },
       async ({ userId, collection }) => {
         try {
@@ -1025,16 +1010,14 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'create_user',
       {
-        email: z.string().describe('User email'),
-        password: z.string().describe('User password'),
-        passwordConfirm: z.string().describe('Password confirmation'),
-        name: z.string().optional().describe('User name'),
-        collection: z.string().optional().default('users').describe('Collection name')
+        email: z.string().email().describe('User email address for the new account. Must be unique and a valid email format.'),
+        password: z.string().min(8).describe('User password for the new account. Must meet minimum security requirements (typically 8+ characters).'),
+        passwordConfirm: z.string().min(8).describe('Password confirmation that must exactly match the password field to prevent typos.'),
+        name: z.string().optional().describe('Optional display name for the user account. Can be changed later through profile updates.'),
+        collection: z.string().optional().default('users').describe('Collection where the user record will be created (default: "users"). Must allow public registration or admin creation.')
       },
       async ({ email, password, passwordConfirm, name, collection }) => {
         try {
@@ -1054,15 +1037,13 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Record tools
+    );    // Record tools
     this.server.tool(
       'get_record',
       {
-        collection: z.string().describe('Collection name'),
-        id: z.string().describe('Record ID'),
-        expand: z.string().optional().describe('Relations to expand')
+        collection: z.string().describe('Collection name where the record exists (e.g., "users", "posts", "products")'),
+        id: z.string().describe('Unique identifier of the record to retrieve (15-character string like "abc123def456xyz")'),
+        expand: z.string().optional().describe('Comma-separated list of relation field names to expand/populate (e.g., "author,category" or "user.profile"). Loads related records inline.')
       },
       async ({ collection, id, expand }) => {
         try {
@@ -1081,18 +1062,16 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Tool to set collection access rules
+    );    // Tool to set collection access rules
     this.server.tool(
       'set_collection_rules',
       {
-        collection: z.string().describe('Collection name or ID'),
-        listRule: z.string().nullable().optional().describe('List rule (PocketBase filter syntax or null)'),
-        viewRule: z.string().nullable().optional().describe('View rule (PocketBase filter syntax or null)'),
-        createRule: z.string().nullable().optional().describe('Create rule (PocketBase filter syntax or null)'),
-        updateRule: z.string().nullable().optional().describe('Update rule (PocketBase filter syntax or null)'),
-        deleteRule: z.string().nullable().optional().describe('Delete rule (PocketBase filter syntax or null)')
+        collection: z.string().describe('Collection name or ID to update access rules for (e.g., "users", "posts"). Requires admin privileges.'),
+        listRule: z.string().nullable().optional().describe('List rule using PocketBase filter syntax (e.g., "@request.auth.id != \'\'") or null for public access. Controls who can list/query records.'),
+        viewRule: z.string().nullable().optional().describe('View rule using PocketBase filter syntax (e.g., "@request.auth.id = id") or null for public access. Controls who can view individual records.'),
+        createRule: z.string().nullable().optional().describe('Create rule using PocketBase filter syntax (e.g., "@request.auth.id != \'\'") or null for public creation. Controls who can create new records.'),
+        updateRule: z.string().nullable().optional().describe('Update rule using PocketBase filter syntax (e.g., "@request.auth.id = id") or null for public updates. Controls who can modify existing records.'),
+        deleteRule: z.string().nullable().optional().describe('Delete rule using PocketBase filter syntax (e.g., "@request.auth.id = id") or null for public deletion. Controls who can delete records.')
       },
       async ({ collection, listRule, viewRule, createRule, updateRule, deleteRule }) => {
         try {
@@ -1124,27 +1103,25 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Tool to update collection schema (add/remove/update fields)
+    );    // Tool to update collection schema (add/remove/update fields)
     const updateCollectionSchemaTool = this.server.tool(
       'update_collection_schema',
       {
-        collection: z.string().describe('Collection name or ID'),
+        collection: z.string().describe('Collection name or ID to modify schema for (e.g., "users", "posts"). Requires admin privileges and careful planning.'),
         addFields: z.array(z.object({
-          name: z.string(),
-          type: z.string(),
-          required: z.boolean().optional().default(false),
-          options: z.record(z.any()).optional()
-        })).optional().describe('Fields to add'),
-        removeFields: z.array(z.string()).optional().describe('Names of fields to remove'),
+          name: z.string().describe('Field name (must be unique within collection and follow naming rules: start with letter, only letters/numbers/underscores)'),
+          type: z.string().describe('Field type: "text", "number", "bool", "email", "url", "date", "select", "json", "file", or "relation"'),
+          required: z.boolean().optional().default(false).describe('Whether this field is required for new records (default: false)'),
+          options: z.record(z.any()).optional().describe('Field-specific options (e.g., for select: {values: ["option1", "option2"]}, for relation: {collectionId: "target_collection"})')
+        })).optional().describe('Array of new fields to add to the collection schema'),
+        removeFields: z.array(z.string()).optional().describe('Array of field names to remove from collection schema. Warning: This will delete all data in these fields!'),
         updateFields: z.array(z.object({
-          name: z.string().describe('Name of the field to update'),
-          newName: z.string().optional().describe('Optional new name for the field'),
-          type: z.string().optional().describe('Optional new type'),
-          required: z.boolean().optional().describe('Optional new required status'),
-          options: z.record(z.any()).optional().describe('Optional new options')
-        })).optional().describe('Fields to update')
+          name: z.string().describe('Current name of the field to update'),
+          newName: z.string().optional().describe('New name for the field (optional, renames the field)'),
+          type: z.string().optional().describe('New field type (optional, changes the field type - may cause data loss)'),
+          required: z.boolean().optional().describe('New required status (optional, changes whether field is mandatory)'),
+          options: z.record(z.any()).optional().describe('New field options (optional, updates field-specific configuration)')
+        })).optional().describe('Array of existing fields to modify. Changes may affect existing data.')
       },
       async ({ collection, addFields = [], removeFields = [], updateFields = [] }) => {
         try {
@@ -1210,13 +1187,11 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Tool to get collection schema (duplicates resource functionality for tool access)
+    );    // Tool to get collection schema (duplicates resource functionality for tool access)
     this.server.tool(
       'get_collection_schema',
       {
-        collection: z.string().describe('Collection name or ID')
+        collection: z.string().describe('Collection name or ID to retrieve schema information for (e.g., "users", "posts", "products"). Returns detailed field definitions, rules, and indexes.')
       },
       async ({ collection }) => {
         try {
@@ -1305,13 +1280,11 @@ class PocketBaseServer {
           }
         }
       }
-    );
-
-    // Database management tools
+    );    // Database management tools
     this.server.tool(
       'backup_database',
       {
-        format: z.enum(['json', 'csv']).optional().default('json').describe('Export format')
+        format: z.enum(['json', 'csv']).optional().default('json').describe('Export format for backup data. JSON provides complete structured data, CSV is human-readable but may lose complex field types.')
       },
       async ({ format }) => {
         try {
@@ -1357,14 +1330,12 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'import_data',
       {
-        collection: z.string().describe('Collection name'),
-        data: z.array(z.record(z.any())).describe('Array of records to import'),
-        mode: z.enum(['create', 'update', 'upsert']).optional().default('create').describe('Import mode')
+        collection: z.string().describe('Collection name where data will be imported (e.g., "users", "posts"). Collection must exist and have appropriate schema.'),
+        data: z.array(z.record(z.any())).describe('Array of record objects to import. Each object should match the collection schema. Include "id" field for update/upsert modes.'),
+        mode: z.enum(['create', 'update', 'upsert']).optional().default('create').describe('Import strategy: "create" (new records only), "update" (existing records only, requires id), "upsert" (create or update based on id presence)')
       },
       async ({ collection, data, mode }) => {
         try {
@@ -1406,20 +1377,18 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Collection migration tool
+    );    // Collection migration tool
     this.server.tool(
       'migrate_collection',
       {
-        collection: z.string().describe('Collection name'),
+        collection: z.string().describe('Collection name to migrate to new schema. WARNING: This operation is destructive and creates a temporary collection during migration. Backup data first!'),
         newSchema: z.array(z.object({
-          name: z.string(),
-          type: z.string(),
-          required: z.boolean().default(false),
-          options: z.record(z.any()).optional()
-        })).describe('New collection schema'),
-        dataTransforms: z.record(z.string()).optional().describe('Field transformation mappings')
+          name: z.string().describe('Field name for the new schema'),
+          type: z.string().describe('Field type: "text", "number", "bool", "email", "url", "date", "select", "json", "file", or "relation"'),
+          required: z.boolean().default(false).describe('Whether this field is required in the new schema'),
+          options: z.record(z.any()).optional().describe('Field-specific options (e.g., select values, relation targets)')
+        })).describe('Complete new schema definition for the collection. All existing data will be transformed to match this schema.'),
+        dataTransforms: z.record(z.string()).optional().describe('JavaScript expressions for transforming field data during migration. Key is field name, value is transform function body (e.g., {"fullName": "oldValue.firstName + \' \' + oldValue.lastName"})')
       },
       async ({ collection, newSchema, dataTransforms }: {
         collection: string;
@@ -1474,19 +1443,17 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Index management tool
+    );    // Index management tool
     this.server.tool(
       'manage_indexes',
       {
-        collection: z.string().describe('Collection name'),
-        action: z.enum(['create', 'delete', 'list']).describe('Action to perform'),
+        collection: z.string().describe('Collection name or ID to manage indexes for (e.g., "users", "posts"). Requires admin privileges.'),
+        action: z.enum(['create', 'delete', 'list']).describe('Index operation: "create" (add new index), "delete" (remove existing index), "list" (show all indexes)'),
         index: z.object({
-          name: z.string(),
-          fields: z.array(z.string()),
-          unique: z.boolean().optional()
-        }).optional().describe('Index configuration (for create)')
+          name: z.string().describe('Unique name for the index (used for identification and deletion)'),
+          fields: z.array(z.string()).describe('Array of field names to include in the index (e.g., ["name", "email"] for composite index)'),
+          unique: z.boolean().optional().describe('Whether this should be a unique index (prevents duplicate values, default: false)')
+        }).optional().describe('Index configuration object (required for create action, optional for delete if name provided)')
       },
       async ({ collection, action, index }) => {
         try {
@@ -1539,20 +1506,18 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // File upload tool
+    );    // File upload tool
     this.server.tool(
       'upload_file',
       {
-        collection: z.string().describe('Collection name'),
-        recordId: z.string().optional().describe('Record ID (optional - if not provided, creates new record)'),
+        collection: z.string().describe('Collection name where the file record will be stored (e.g., "documents", "images"). Must have file field(s) in schema.'),
+        recordId: z.string().optional().describe('Existing record ID to update with file (optional). If not provided, creates a new record with the file.'),
         fileData: z.object({
-          name: z.string().describe('File name'),
-          content: z.string().describe('Base64 encoded file content'),
-          type: z.string().optional().describe('File MIME type')
-        }).describe('File data in base64 format'),
-        additionalFields: z.record(z.any()).optional().describe('Additional record fields')
+          name: z.string().describe('File name with extension (e.g., "document.pdf", "image.jpg"). Will be used as the uploaded file name.'),
+          content: z.string().describe('Base64 encoded file content. Convert your file to base64 before passing to this parameter.'),
+          type: z.string().optional().describe('MIME type of the file (e.g., "image/jpeg", "application/pdf"). Auto-detected if not provided.')
+        }).describe('File data object containing name, base64 content, and optional MIME type'),
+        additionalFields: z.record(z.any()).optional().describe('Additional record fields to set along with the file (e.g., title, description, tags). Only used when creating new records.')
       },
       async ({ collection, recordId, fileData, additionalFields = {} }) => {
         try {
@@ -1587,8 +1552,8 @@ class PocketBaseServer {
     this.server.tool(
       'build_filter',
       {
-        expression: z.string().describe('Filter expression with placeholders like "name = {:name} && active = {:active}"'),
-        params: z.record(z.any()).describe('Parameter values for safe binding (prevents SQL injection)')
+        expression: z.string().describe('Filter expression with parameter placeholders using {:name} syntax (e.g., "name = {:name} && active = {:active} && created >= {:startDate}"). Prevents SQL injection attacks.'),
+        params: z.record(z.any()).describe('Parameter values for safe binding. Keys should match placeholder names without colons/braces (e.g., {"name": "John", "active": true, "startDate": "2024-01-01"})')
       },
       async ({ expression, params }) => {
         try {
@@ -1622,15 +1587,13 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Request options tool
+    );    // Request options tool
     this.server.tool(
       'set_request_options',
       {
-        autoCancellation: z.boolean().optional().describe('Enable/disable auto cancellation'),
-        requestKey: z.string().nullable().optional().describe('Custom request identifier'),
-        headers: z.record(z.string()).optional().describe('Custom headers')
+        autoCancellation: z.boolean().optional().describe('Enable/disable automatic cancellation of duplicate requests (helps prevent race conditions)'),
+        requestKey: z.string().nullable().optional().describe('Custom request identifier for manual cancellation. Set to null to cancel a specific request.'),
+        headers: z.record(z.string()).optional().describe('Custom HTTP headers to include in all subsequent requests (e.g., {"X-Custom-Header": "value"})')
       },
       async ({ autoCancellation, requestKey, headers }) => {
         try {
@@ -1658,14 +1621,12 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Auth store management tool
+    );    // Auth store management tool
     this.server.tool(
       'manage_auth_store',
       {
-        action: z.enum(['save', 'clear', 'export_cookie', 'load_cookie']).describe('Action to perform'),
-        data: z.record(z.any()).optional().describe('Data for the action')
+        action: z.enum(['save', 'clear', 'export_cookie', 'load_cookie']).describe('Authentication store operation: "save" (store auth data), "clear" (logout), "export_cookie" (get cookie string), "load_cookie" (restore from cookie)'),
+        data: z.record(z.any()).optional().describe('Action-specific data: for "save" use {token, record}, for "export_cookie" use cookie options, for "load_cookie" use {cookie: "cookie_string"}')
       },
       async ({ action, data = {} }) => {
         try {
@@ -1701,15 +1662,13 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Real-time subscription tool (Note: Streams data to server console, not back via MCP response)
+    );    // Real-time subscription tool (Note: Streams data to server console, not back via MCP response)
     this.server.tool(
       'subscribe_to_collection',
       {
-        collection: z.string().describe('Collection name to subscribe to'),
-        recordId: z.string().optional().describe('Specific record ID to subscribe to (optional)'),
-        filter: z.string().optional().describe('Filter expression for subscription (optional)')
+        collection: z.string().describe('Collection name to monitor for real-time changes (e.g., "users", "posts"). Events will be logged to server console.'),
+        recordId: z.string().optional().describe('Specific record ID to monitor (optional). If provided, only changes to this record will trigger events. Use "*" or omit for all records.'),
+        filter: z.string().optional().describe('PocketBase filter expression to limit which records trigger events (optional). Uses same syntax as list_records filter.')
         // How to handle the callback/stream is tricky with MCP's request/response model.
         // This implementation will log events to the server console.
       },
@@ -3410,19 +3369,17 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // === HIGH-LEVEL AUTOMATION WORKFLOW TOOLS ===
+    );    // === HIGH-LEVEL AUTOMATION WORKFLOW TOOLS ===
     
     // Complete user registration with email and Stripe customer creation
     this.server.tool(
       'register_user_with_automation',
       {
-        email: z.string().email().describe('User email'),
-        password: z.string().describe('User password'),
-        userData: z.record(z.any()).optional().describe('Additional user data'),
-        sendWelcomeEmail: z.boolean().optional().default(true).describe('Send welcome email'),
-        createStripeCustomer: z.boolean().optional().default(true).describe('Create Stripe customer')
+        email: z.string().email().describe('User email address for registration and notifications'),
+        password: z.string().min(8).describe('User password (minimum 8 characters for security)'),
+        userData: z.record(z.any()).optional().describe('Additional user profile data (name, phone, preferences, etc.)'),
+        sendWelcomeEmail: z.boolean().optional().default(true).describe('Automatically send welcome email using template "welcome"'),
+        createStripeCustomer: z.boolean().optional().default(true).describe('Create corresponding Stripe customer for payment processing')
       },
       async ({ email, password, userData = {}, sendWelcomeEmail, createStripeCustomer }) => {
         try {
@@ -3455,8 +3412,7 @@ class PocketBaseServer {
               results.stripeError = error.message;
             }
           }
-          
-          // Step 3: Send welcome email if enabled and service available
+            // Step 3: Send welcome email if enabled and service available
           if (sendWelcomeEmail && this.emailService) {
             try {
               await this.emailService.sendTemplatedEmail({
@@ -3465,13 +3421,31 @@ class PocketBaseServer {
                 variables: {
                   name: userData.name || email,
                   email,
-                  userId: user.id
+                  userId: user.id,
+                  appName: process.env.APP_NAME || 'Your App'
                 }
               });
               results.welcomeEmailSent = true;
             } catch (error: any) {
               results.emailError = error.message;
             }
+          }
+          
+          // Step 4: Log successful registration for analytics
+          try {
+            await this.pb.collection('user_registrations').create({
+              user_id: user.id,
+              registration_method: 'automation',
+              stripe_customer_created: !!results.stripeCustomer,
+              welcome_email_sent: !!results.welcomeEmailSent,
+              registration_ip: '', // Could be enhanced with IP tracking
+              user_agent: '', // Could be enhanced with user agent tracking
+              created: new Date().toISOString()
+            });
+            results.analyticsLogged = true;
+          } catch (error: any) {
+            // Analytics logging is optional - don't fail registration if this fails
+            results.analyticsWarning = 'Could not log registration analytics: ' + error.message;
           }
           
           return {
@@ -3484,38 +3458,49 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // End-to-end subscription setup with email notifications
+    );    // End-to-end subscription setup with email notifications
     this.server.tool(
       'create_subscription_flow',
       {
-        customerId: z.string().describe('Stripe customer ID'),
-        priceId: z.string().describe('Stripe price ID'),
-        userEmail: z.string().email().describe('User email for notifications'),
-        metadata: z.record(z.any()).optional().describe('Additional subscription metadata'),
-        sendConfirmationEmail: z.boolean().optional().default(true).describe('Send confirmation email')
-      },
-      async ({ customerId, priceId, userEmail, metadata = {}, sendConfirmationEmail }) => {
+        customerId: z.string().describe('Stripe customer ID (get from register_user_with_automation or stripe_create_customer)'),
+        priceId: z.string().describe('Stripe price ID for the subscription plan (created via Stripe dashboard or API)'),
+        userEmail: z.string().email().describe('User email address for subscription confirmation and notifications'),
+        metadata: z.record(z.any()).optional().describe('Custom metadata for subscription tracking (plan_name, source, campaign_id, etc.)'),
+        sendConfirmationEmail: z.boolean().optional().default(true).describe('Send subscription confirmation email using template "subscription_created"'),
+        trialPeriodDays: z.number().optional().describe('Number of days for free trial period (optional)'),
+        promotionCode: z.string().optional().describe('Stripe promotion code to apply to subscription (optional)')
+      },      async ({ customerId, priceId, userEmail, metadata = {}, sendConfirmationEmail, trialPeriodDays, promotionCode }) => {
         try {
           const results: any = {};
           
           if (!this.stripeService) {
-            throw new Error('Stripe service not configured');
+            throw new Error('Stripe service not configured. Set STRIPE_SECRET_KEY environment variable.');
           }
           
-          // Step 1: Create Stripe subscription
-          const subscription = await this.stripeService.createAdvancedSubscription({
+          // Step 1: Create Stripe subscription with enhanced options
+          const subscriptionData: any = {
             customerId,
             items: [{ price: priceId }],
             metadata: {
               ...metadata,
-              created_via: 'mcp_automation'
+              created_via: 'mcp_automation',
+              user_email: userEmail,
+              created_at: new Date().toISOString()
             }
-          });
-          results.subscription = subscription;
+          };
           
-          // Step 2: Store subscription in PocketBase
+          // Add optional features if provided
+          if (trialPeriodDays) {
+            subscriptionData.trialPeriodDays = trialPeriodDays;
+          }
+          
+          if (promotionCode) {
+            subscriptionData.promotionCode = promotionCode;
+          }
+          
+          const subscription = await this.stripeService.createAdvancedSubscription(subscriptionData);
+          results.subscription = subscription;
+            // Step 2: Store subscription in PocketBase with enhanced tracking
           try {
             const subscriptionRecord = await this.pb.collection('stripe_subscriptions').create({
               stripe_subscription_id: subscription.id,
@@ -3523,29 +3508,63 @@ class PocketBaseServer {
               status: subscription.status,
               price_id: priceId,
               metadata: JSON.stringify(metadata),
-              user_email: userEmail
+              user_email: userEmail,
+              trial_start: subscription.trial_start ? new Date(subscription.trial_start * 1000).toISOString() : null,
+              trial_end: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
+              current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+              current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+              created_via: 'automation_flow'
             });
             results.subscriptionRecord = subscriptionRecord;
           } catch (error: any) {
             results.databaseError = error.message;
           }
-          
-          // Step 3: Send confirmation email if enabled and service available
+            // Step 3: Send confirmation email if enabled and service available
           if (sendConfirmationEmail && this.emailService) {
             try {
+              const emailVariables: any = {
+                subscriptionId: subscription.id,
+                status: subscription.status,
+                priceId,
+                email: userEmail,
+                appName: process.env.APP_NAME || 'Your App'
+              };
+              
+              // Add trial information if applicable
+              if (subscription.trial_end) {
+                emailVariables.trialEnd = new Date(subscription.trial_end * 1000).toLocaleDateString();
+                emailVariables.isTrialSubscription = true;
+              }
+              
+              // Add promotion information if applicable
+              if (promotionCode) {
+                emailVariables.promotionCode = promotionCode;
+                emailVariables.hasPromotion = true;
+              }
+              
               await this.emailService.sendTemplatedEmail({
                 template: 'subscription_created',
                 to: userEmail,
-                variables: {
-                  subscriptionId: subscription.id,
-                  status: subscription.status,
-                  priceId,
-                  email: userEmail
-                }
+                variables: emailVariables
               });
               results.confirmationEmailSent = true;
             } catch (error: any) {
               results.emailError = error.message;
+            }
+          }
+          
+          // Step 4: Update user record with subscription information
+          if (this.pb && userEmail) {
+            try {
+              const user = await this.pb.collection('users').getFirstListItem(`email = '${userEmail}'`);
+              await this.pb.collection('users').update(user.id, {
+                subscription_status: subscription.status,
+                stripe_subscription_id: subscription.id,
+                subscription_updated_at: new Date().toISOString()
+              });
+              results.userUpdated = true;
+            } catch (error: any) {
+              results.userUpdateError = error.message;
             }
           }
           
@@ -3559,29 +3578,44 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Webhook processing with automated email notifications
+    );    // Webhook processing with automated email notifications and enhanced event handling
     this.server.tool(
       'process_payment_webhook_with_email',
       {
-        webhookPayload: z.record(z.any()).describe('Stripe webhook payload'),
-        webhookSignature: z.string().describe('Stripe webhook signature'),
-        sendNotifications: z.boolean().optional().default(true).describe('Send email notifications')
-      },
-      async ({ webhookPayload, webhookSignature, sendNotifications }) => {
+        webhookPayload: z.record(z.any()).describe('Complete Stripe webhook payload (includes type, data, id, created fields)'),
+        webhookSignature: z.string().describe('Stripe webhook signature header (stripe-signature) for security verification'),
+        sendNotifications: z.boolean().optional().default(true).describe('Automatically send email notifications for payment events (payment_intent.succeeded, payment_intent.payment_failed, etc.)'),
+        customEmailTemplates: z.record(z.string()).optional().describe('Override default email templates for specific events (e.g., {"payment_intent.succeeded": "custom_payment_success"})')
+      },      async ({ webhookPayload, webhookSignature, sendNotifications, customEmailTemplates = {} }) => {
         try {
           const results: any = {};
           
           if (!this.stripeService) {
-            throw new Error('Stripe service not configured');
+            throw new Error('Stripe service not configured. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET.');
           }
           
-          // Step 1: Process the webhook with Stripe service
+          // Step 1: Process the webhook with Stripe service (validates signature)
           const webhookResult = await this.stripeService.handleWebhook(JSON.stringify(webhookPayload), webhookSignature);
           results.webhookProcessed = webhookResult;
+          results.eventType = webhookPayload.type;
+          results.eventId = webhookPayload.id;
           
-          // Step 2: Handle specific webhook events with email notifications
+          // Step 2: Log webhook event for audit trail
+          try {
+            await this.pb.collection('webhook_events').create({
+              event_id: webhookPayload.id,
+              event_type: webhookPayload.type,
+              processed_at: new Date().toISOString(),
+              data: JSON.stringify(webhookPayload.data),
+              livemode: webhookPayload.livemode || false,
+              api_version: webhookPayload.api_version || '',
+              processing_result: JSON.stringify(webhookResult)
+            });
+            results.eventLogged = true;
+          } catch (error: any) {
+            results.loggingError = error.message;
+          }
+            // Step 3: Handle specific webhook events with enhanced email notifications
           if (sendNotifications && this.emailService && webhookPayload.type) {
             const eventType = webhookPayload.type;
             const eventData = webhookPayload.data?.object;
@@ -3590,13 +3624,17 @@ class PocketBaseServer {
               switch (eventType) {
                 case 'payment_intent.succeeded':
                   if (eventData?.receipt_email) {
+                    const template = customEmailTemplates['payment_intent.succeeded'] || 'payment_success';
                     await this.emailService.sendTemplatedEmail({
-                      template: 'payment_success',
+                      template,
                       to: eventData.receipt_email,
                       variables: {
-                        amount: eventData.amount / 100,
-                        currency: eventData.currency,
-                        paymentId: eventData.id
+                        amount: (eventData.amount / 100).toFixed(2),
+                        currency: eventData.currency.toUpperCase(),
+                        paymentId: eventData.id,
+                        paymentMethod: eventData.payment_method_types?.[0] || 'card',
+                        receiptUrl: eventData.charges?.data?.[0]?.receipt_url || '',
+                        appName: process.env.APP_NAME || 'Your App'
                       }
                     });
                     results.paymentSuccessEmailSent = true;
@@ -3605,39 +3643,99 @@ class PocketBaseServer {
                   
                 case 'payment_intent.payment_failed':
                   if (eventData?.receipt_email) {
+                    const template = customEmailTemplates['payment_intent.payment_failed'] || 'payment_failed';
                     await this.emailService.sendTemplatedEmail({
-                      template: 'payment_failed',
+                      template,
                       to: eventData.receipt_email,
                       variables: {
-                        amount: eventData.amount / 100,
-                        currency: eventData.currency,
+                        amount: (eventData.amount / 100).toFixed(2),
+                        currency: eventData.currency.toUpperCase(),
                         paymentId: eventData.id,
-                        failureReason: eventData.last_payment_error?.message || 'Unknown error'
+                        failureReason: eventData.last_payment_error?.message || 'Payment declined',
+                        failureCode: eventData.last_payment_error?.code || 'generic_decline',
+                        supportEmail: process.env.SUPPORT_EMAIL || 'support@yourapp.com',
+                        appName: process.env.APP_NAME || 'Your App'
                       }
                     });
                     results.paymentFailedEmailSent = true;
                   }
                   break;
                   
-                case 'customer.subscription.created':
+                case 'invoice.payment_succeeded':
+                  // Find user by customer ID for subscription renewals
+                  try {
+                    const user = await this.pb.collection('users').getFirstListItem(
+                      `stripe_customer_id = '${eventData?.customer}'`
+                    );
+                    const template = customEmailTemplates['invoice.payment_succeeded'] || 'subscription_renewed';
+                    await this.emailService.sendTemplatedEmail({
+                      template,
+                      to: user.email,
+                      variables: {
+                        invoiceId: eventData?.id,
+                        amount: (eventData?.amount_paid / 100).toFixed(2),
+                        currency: eventData?.currency?.toUpperCase(),
+                        periodStart: new Date(eventData?.period_start * 1000).toLocaleDateString(),
+                        periodEnd: new Date(eventData?.period_end * 1000).toLocaleDateString(),
+                        invoiceUrl: eventData?.hosted_invoice_url || '',
+                        appName: process.env.APP_NAME || 'Your App'
+                      }
+                    });
+                    results.invoiceEmailSent = true;
+                  } catch (error: any) {
+                    results.invoiceEmailError = error.message;
+                  }
+                  break;
+                    case 'customer.subscription.created':
                 case 'customer.subscription.updated':
                   // Find user by customer ID and send notification
                   try {
                     const user = await this.pb.collection('users').getFirstListItem(
                       `stripe_customer_id = '${eventData?.customer}'`
                     );
+                    const template = customEmailTemplates[eventType] || 'subscription_updated';
                     await this.emailService.sendTemplatedEmail({
-                      template: 'subscription_updated',
+                      template,
                       to: user.email,
                       variables: {
                         subscriptionId: eventData?.id,
                         status: eventData?.status,
-                        customerId: eventData?.customer
+                        customerId: eventData?.customer,
+                        planName: eventData?.items?.data?.[0]?.price?.nickname || 'Your Plan',
+                        amount: eventData?.items?.data?.[0]?.price?.unit_amount ? 
+                          (eventData.items.data[0].price.unit_amount / 100).toFixed(2) : '0',
+                        currency: eventData?.items?.data?.[0]?.price?.currency?.toUpperCase() || 'USD',
+                        currentPeriodEnd: new Date(eventData?.current_period_end * 1000).toLocaleDateString(),
+                        appName: process.env.APP_NAME || 'Your App'
                       }
                     });
                     results.subscriptionEmailSent = true;
                   } catch (error: any) {
                     results.subscriptionEmailError = error.message;
+                  }
+                  break;
+                  
+                case 'customer.subscription.deleted':
+                  // Handle subscription cancellation
+                  try {
+                    const user = await this.pb.collection('users').getFirstListItem(
+                      `stripe_customer_id = '${eventData?.customer}'`
+                    );
+                    const template = customEmailTemplates['customer.subscription.deleted'] || 'subscription_canceled';
+                    await this.emailService.sendTemplatedEmail({
+                      template,
+                      to: user.email,
+                      variables: {
+                        subscriptionId: eventData?.id,
+                        canceledAt: new Date(eventData?.canceled_at * 1000).toLocaleDateString(),
+                        feedbackUrl: process.env.FEEDBACK_URL || '',
+                        supportEmail: process.env.SUPPORT_EMAIL || 'support@yourapp.com',
+                        appName: process.env.APP_NAME || 'Your App'
+                      }
+                    });
+                    results.cancellationEmailSent = true;
+                  } catch (error: any) {
+                    results.cancellationEmailError = error.message;
                   }
                   break;
               }
@@ -3656,21 +3754,21 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // One-click SaaS backend initialization
+    );    // One-click SaaS backend initialization with comprehensive setup
     this.server.tool(
       'setup_complete_saas_backend',
       {
-        setupStripeCollections: z.boolean().optional().default(true).describe('Setup Stripe-related collections'),
-        setupEmailCollections: z.boolean().optional().default(true).describe('Setup email-related collections'),
-        createDefaultTemplates: z.boolean().optional().default(true).describe('Create default email templates'),
-        setupUserCollections: z.boolean().optional().default(true).describe('Setup user management collections')
-      },
-      async ({ setupStripeCollections, setupEmailCollections, createDefaultTemplates, setupUserCollections }) => {
+        setupStripeCollections: z.boolean().optional().default(true).describe('Create Stripe-related collections (customers, subscriptions, payments, invoices)'),
+        setupEmailCollections: z.boolean().optional().default(true).describe('Create email-related collections (templates, logs, suppressions, campaigns)'),
+        createDefaultTemplates: z.boolean().optional().default(true).describe('Create default email templates (welcome, payment_success, subscription_created, etc.)'),
+        setupUserCollections: z.boolean().optional().default(true).describe('Create enhanced user management collections (profiles, sessions, preferences)'),
+        setupAnalyticsCollections: z.boolean().optional().default(true).describe('Create analytics and tracking collections (events, metrics, user_activity)'),
+        setupWebhookCollections: z.boolean().optional().default(true).describe('Create webhook processing collections (webhook_events, processing_logs)')
+      },      async ({ setupStripeCollections, setupEmailCollections, createDefaultTemplates, setupUserCollections, setupAnalyticsCollections, setupWebhookCollections }) => {
         try {
           const results: any = {};
-            // Step 1: Setup advanced collections
+          
+          // Step 1: Verify PocketBase access
           try {
             const collectionsSetup = await this.pb.collection('_collections').getList(1, 1);
             results.collectionsSetup = { success: true, message: 'Collections accessible' };
@@ -3687,35 +3785,118 @@ class PocketBaseServer {
               results.templatesError = error.message;
             }
           }
-          
-          // Step 3: Setup additional collections based on requirements
+            // Step 3: Setup comprehensive collections based on requirements
           const additionalCollections = [];
           
           if (setupUserCollections) {
-            additionalCollections.push({
-              name: 'user_profiles',
-              schema: [
-                { name: 'user_id', type: 'relation', required: true, options: { collectionId: 'users' } },
-                { name: 'display_name', type: 'text', required: false },
-                { name: 'bio', type: 'text', required: false },
-                { name: 'avatar', type: 'file', required: false },
-                { name: 'subscription_status', type: 'select', required: false, options: { values: ['free', 'premium', 'cancelled'] } }
-              ]
-            });
+            additionalCollections.push(
+              {
+                name: 'user_profiles',
+                schema: [
+                  { name: 'user_id', type: 'relation', required: true, options: { collectionId: 'users' } },
+                  { name: 'display_name', type: 'text', required: false },
+                  { name: 'bio', type: 'text', required: false },
+                  { name: 'avatar', type: 'file', required: false },
+                  { name: 'subscription_status', type: 'select', required: false, options: { values: ['free', 'trial', 'premium', 'cancelled'] } },
+                  { name: 'onboarding_completed', type: 'bool', required: false },
+                  { name: 'preferences', type: 'json', required: false }
+                ]
+              },
+              {
+                name: 'user_sessions',
+                schema: [
+                  { name: 'user_id', type: 'relation', required: true, options: { collectionId: 'users' } },
+                  { name: 'session_token', type: 'text', required: true },
+                  { name: 'ip_address', type: 'text', required: false },
+                  { name: 'user_agent', type: 'text', required: false },
+                  { name: 'expires_at', type: 'date', required: true },
+                  { name: 'is_active', type: 'bool', required: true }
+                ]
+              }
+            );
           }
           
           if (setupStripeCollections) {
-            additionalCollections.push({
-              name: 'payment_history',
-              schema: [
-                { name: 'user_id', type: 'relation', required: true, options: { collectionId: 'users' } },
-                { name: 'stripe_payment_id', type: 'text', required: true },
-                { name: 'amount', type: 'number', required: true },
-                { name: 'currency', type: 'text', required: true },
-                { name: 'status', type: 'text', required: true },
-                { name: 'metadata', type: 'json', required: false }
-              ]
-            });
+            additionalCollections.push(
+              {
+                name: 'stripe_customers',
+                schema: [
+                  { name: 'user_id', type: 'relation', required: true, options: { collectionId: 'users' } },
+                  { name: 'stripe_customer_id', type: 'text', required: true },
+                  { name: 'email', type: 'email', required: true },
+                  { name: 'name', type: 'text', required: false },
+                  { name: 'metadata', type: 'json', required: false }
+                ]
+              },
+              {
+                name: 'payment_history',
+                schema: [
+                  { name: 'user_id', type: 'relation', required: true, options: { collectionId: 'users' } },
+                  { name: 'stripe_payment_id', type: 'text', required: true },
+                  { name: 'amount', type: 'number', required: true },
+                  { name: 'currency', type: 'text', required: true },
+                  { name: 'status', type: 'text', required: true },
+                  { name: 'payment_method', type: 'text', required: false },
+                  { name: 'metadata', type: 'json', required: false }
+                ]
+              },
+              {
+                name: 'subscription_history',
+                schema: [
+                  { name: 'user_id', type: 'relation', required: true, options: { collectionId: 'users' } },
+                  { name: 'stripe_subscription_id', type: 'text', required: true },
+                  { name: 'status', type: 'text', required: true },
+                  { name: 'plan_name', type: 'text', required: false },
+                  { name: 'amount', type: 'number', required: false },
+                  { name: 'started_at', type: 'date', required: false },
+                  { name: 'ended_at', type: 'date', required: false }
+                ]
+              }
+            );
+          }
+          
+          if (setupAnalyticsCollections) {
+            additionalCollections.push(
+              {
+                name: 'user_events',
+                schema: [
+                  { name: 'user_id', type: 'relation', required: false, options: { collectionId: 'users' } },
+                  { name: 'event_name', type: 'text', required: true },
+                  { name: 'event_data', type: 'json', required: false },
+                  { name: 'session_id', type: 'text', required: false },
+                  { name: 'ip_address', type: 'text', required: false },
+                  { name: 'user_agent', type: 'text', required: false }
+                ]
+              },
+              {
+                name: 'user_registrations',
+                schema: [
+                  { name: 'user_id', type: 'relation', required: true, options: { collectionId: 'users' } },
+                  { name: 'registration_method', type: 'text', required: true },
+                  { name: 'stripe_customer_created', type: 'bool', required: false },
+                  { name: 'welcome_email_sent', type: 'bool', required: false },
+                  { name: 'registration_ip', type: 'text', required: false },
+                  { name: 'user_agent', type: 'text', required: false }
+                ]
+              }
+            );
+          }
+          
+          if (setupWebhookCollections) {
+            additionalCollections.push(
+              {
+                name: 'webhook_events',
+                schema: [
+                  { name: 'event_id', type: 'text', required: true },
+                  { name: 'event_type', type: 'text', required: true },
+                  { name: 'processed_at', type: 'date', required: true },
+                  { name: 'data', type: 'json', required: false },
+                  { name: 'livemode', type: 'bool', required: false },
+                  { name: 'api_version', type: 'text', required: false },
+                  { name: 'processing_result', type: 'json', required: false }
+                ]
+              }
+            );
           }
           
           // Create additional collections
@@ -3731,11 +3912,31 @@ class PocketBaseServer {
               results[`${collection.name}_error`] = error.message;
             }
           }
-          
-          results.summary = {
+            results.summary = {
             totalCollections: Object.keys(results).filter(k => k.endsWith('_created')).length,
             errors: Object.keys(results).filter(k => k.endsWith('_error')).length,
-            backendReadyForProduction: Object.keys(results).filter(k => k.endsWith('_error')).length === 0
+            backendReadyForProduction: Object.keys(results).filter(k => k.endsWith('_error')).length === 0,
+            servicesConfigured: {
+              stripe: !!this.stripeService,
+              email: !!this.emailService,
+              sendgrid: process.env.EMAIL_SERVICE === 'sendgrid'
+            },
+            environmentVariables: {
+              required: ['POCKETBASE_URL'],
+              optional: ['STRIPE_SECRET_KEY', 'EMAIL_SERVICE', 'SENDGRID_API_KEY', 'SMTP_HOST'],
+              missing: [
+                !process.env.POCKETBASE_URL && 'POCKETBASE_URL',
+                !process.env.STRIPE_SECRET_KEY && 'STRIPE_SECRET_KEY',
+                !process.env.EMAIL_SERVICE && 'EMAIL_SERVICE'
+              ].filter(Boolean)
+            },
+            nextSteps: [
+              'Configure environment variables for missing services',
+              'Test email templates with email_test_connection',
+              'Set up Stripe webhooks in dashboard',
+              'Configure domain authentication for email delivery',
+              'Review collection permissions and access rules'
+            ]
           };
           
           return {
@@ -3748,74 +3949,126 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Subscription cancellation with customer notifications
+    );    // Subscription cancellation with customer notifications and retention features
     this.server.tool(
       'cancel_subscription_with_email',
       {
-        subscriptionId: z.string().describe('Stripe subscription ID'),
-        reason: z.string().optional().describe('Cancellation reason'),
-        sendNotification: z.boolean().optional().default(true).describe('Send cancellation email'),
-        offerRetention: z.boolean().optional().default(false).describe('Include retention offer in email')
-      },
-      async ({ subscriptionId, reason, sendNotification, offerRetention }) => {
+        subscriptionId: z.string().describe('Stripe subscription ID to cancel (get from subscription records or Stripe dashboard)'),
+        reason: z.string().optional().describe('Cancellation reason for tracking and analytics (user_request, payment_failed, upgrade, etc.)'),
+        sendNotification: z.boolean().optional().default(true).describe('Send cancellation confirmation email to customer'),
+        offerRetention: z.boolean().optional().default(false).describe('Include retention offer in cancellation email (discount, pause, downgrade options)'),
+        cancelAtPeriodEnd: z.boolean().optional().default(false).describe('Cancel at period end (allows customer to use service until billing period expires)'),
+        collectFeedback: z.boolean().optional().default(true).describe('Include feedback collection link in cancellation email')
+      },      async ({ subscriptionId, reason, sendNotification, offerRetention, cancelAtPeriodEnd, collectFeedback }) => {
         try {
           const results: any = {};
           
           if (!this.stripeService) {
-            throw new Error('Stripe service not configured');
+            throw new Error('Stripe service not configured. Set STRIPE_SECRET_KEY environment variable.');
           }
           
-          // Step 1: Cancel the Stripe subscription
-          const canceledSubscription = await this.stripeService.cancelSubscription(subscriptionId);
-          results.canceledSubscription = canceledSubscription;
-          
-          // Step 2: Update subscription record in PocketBase
+          // Step 1: Cancel the Stripe subscription with specified timing
+          const canceledSubscription = await this.stripeService.cancelSubscription(subscriptionId, cancelAtPeriodEnd);
+          results.canceledSubscription = {
+            id: canceledSubscription.id,
+            status: canceledSubscription.status,
+            canceled_at: canceledSubscription.canceled_at,
+            cancel_at_period_end: canceledSubscription.cancel_at_period_end,
+            current_period_end: canceledSubscription.current_period_end
+          };
+            // Step 2: Update subscription record in PocketBase with enhanced tracking
           try {
             const subscriptionRecord = await this.pb.collection('stripe_subscriptions').getFirstListItem(
               `stripe_subscription_id = '${subscriptionId}'`
             );
             
             await this.pb.collection('stripe_subscriptions').update(subscriptionRecord.id, {
-              status: 'canceled',
+              status: canceledSubscription.status,
               canceled_at: new Date().toISOString(),
-              cancellation_reason: reason || 'User requested'
+              cancellation_reason: reason || 'User requested',
+              cancel_at_period_end: cancelAtPeriodEnd,
+              retention_offered: offerRetention,
+              feedback_requested: collectFeedback
             });
             results.databaseUpdated = true;
+            
+            // Log cancellation for analytics
+            await this.pb.collection('subscription_history').create({
+              user_id: subscriptionRecord.user_id || '',
+              stripe_subscription_id: subscriptionId,
+              status: 'canceled',
+              ended_at: new Date().toISOString(),
+              cancellation_reason: reason || 'User requested',
+              retention_offered: offerRetention
+            });
+            results.historyLogged = true;
           } catch (error: any) {
             results.databaseError = error.message;
           }
-          
-          // Step 3: Send cancellation notification email
+            // Step 3: Send enhanced cancellation notification email
           if (sendNotification && this.emailService) {
             try {
               // Get user email from subscription record or customer
               let userEmail = null;
+              let userName = null;
               
               try {
                 const subscriptionRecord = await this.pb.collection('stripe_subscriptions').getFirstListItem(
                   `stripe_subscription_id = '${subscriptionId}'`
                 );
                 userEmail = subscriptionRecord.user_email;
+                
+                // Get user name for personalization
+                if (subscriptionRecord.user_id) {
+                  const user = await this.pb.collection('users').getOne(subscriptionRecord.user_id);
+                  userName = user.name || user.email;
+                }
               } catch {
                 // If no record found, try to get from Stripe customer
                 if (canceledSubscription.customer) {
                   const customer = await this.stripeService.retrieveCustomer(canceledSubscription.customer as string);
                   userEmail = customer.email;
+                  userName = customer.name;
                 }
               }
               
-              if (userEmail) {                const emailTemplate = offerRetention ? 'subscription_canceled_with_offer' : 'subscription_canceled';
+              if (userEmail) {
+                const emailTemplate = offerRetention ? 'subscription_canceled_with_offer' : 'subscription_canceled';
+                const emailVariables: any = {
+                  userName: userName || userEmail,
+                  subscriptionId: subscriptionId,
+                  reason: reason || 'User requested',
+                  canceledAt: canceledSubscription.canceled_at ? 
+                    new Date(canceledSubscription.canceled_at * 1000).toLocaleDateString() : 
+                    new Date().toLocaleDateString(),
+                  email: userEmail,
+                  appName: process.env.APP_NAME || 'Your App',
+                  supportEmail: process.env.SUPPORT_EMAIL || 'support@yourapp.com'
+                };
+                
+                // Add retention-specific variables
+                if (offerRetention) {
+                  emailVariables.retentionOffer = true;
+                  emailVariables.discountCode = process.env.RETENTION_DISCOUNT_CODE || 'COMEBACK20';
+                  emailVariables.retentionUrl = process.env.RETENTION_URL || '';
+                }
+                
+                // Add feedback collection variables
+                if (collectFeedback) {
+                  emailVariables.feedbackUrl = process.env.FEEDBACK_URL || '';
+                  emailVariables.collectFeedback = true;
+                }
+                
+                // Add billing information if cancel at period end
+                if (cancelAtPeriodEnd && canceledSubscription.current_period_end) {
+                  emailVariables.accessUntil = new Date(canceledSubscription.current_period_end * 1000).toLocaleDateString();
+                  emailVariables.cancelAtPeriodEnd = true;
+                }
+                
                 await this.emailService.sendTemplatedEmail({
                   template: emailTemplate,
                   to: userEmail,
-                  variables: {
-                    subscriptionId: subscriptionId,
-                    reason: reason || 'User requested',
-                    canceledAt: canceledSubscription.canceled_at || new Date().toISOString(),
-                    email: userEmail
-                  }
+                  variables: emailVariables
                 });
                 results.cancellationEmailSent = true;
               } else {
@@ -3836,142 +4089,246 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Backend status monitoring and health checks
+    );    // Backend status monitoring and health checks with comprehensive diagnostics
     this.server.tool(
       'get_saas_backend_status',
       {
-        includeCollectionStats: z.boolean().optional().default(true).describe('Include collection statistics'),
-        includeServiceHealth: z.boolean().optional().default(true).describe('Include service health checks'),
-        includeRecommendations: z.boolean().optional().default(true).describe('Include production readiness recommendations')
-      },
-      async ({ includeCollectionStats, includeServiceHealth, includeRecommendations }) => {
+        includeCollectionStats: z.boolean().optional().default(true).describe('Include detailed collection statistics (record counts, schema validation)'),
+        includeServiceHealth: z.boolean().optional().default(true).describe('Include service health checks (Stripe, Email, SendGrid connectivity)'),
+        includeRecommendations: z.boolean().optional().default(true).describe('Include production readiness recommendations and best practices'),
+        includePerformanceMetrics: z.boolean().optional().default(false).describe('Include performance metrics and response times (may slow down check)'),
+        includeSecurityChecks: z.boolean().optional().default(false).describe('Include security configuration checks (auth rules, access permissions)')
+      },      async ({ includeCollectionStats, includeServiceHealth, includeRecommendations, includePerformanceMetrics, includeSecurityChecks }) => {
         try {
           const status: any = {
             timestamp: new Date().toISOString(),
-            overall_status: 'checking'
+            overall_status: 'checking',
+            version: {
+              server: '3.1.0',
+              pocketbase_sdk: '0.26.1',
+              mcp_version: '1.0.0'
+            }
           };
           
-          // Check PocketBase connection
+          // Performance tracking
+          const startTime = Date.now();
+          
+          // Check PocketBase connection with timing
+          const pbStartTime = Date.now();
           try {
             const collections = await this.pb.collections.getList(1, 1);
             status.pocketbase = {
               connected: true,
               url: this.pb.baseUrl,
-              authenticated: this.pb.authStore.isValid
+              authenticated: this.pb.authStore.isValid,
+              response_time_ms: Date.now() - pbStartTime,
+              collections_accessible: collections.totalItems || 0
             };
           } catch (error: any) {
             status.pocketbase = {
               connected: false,
-              error: error.message
+              error: error.message,
+              response_time_ms: Date.now() - pbStartTime
             };
           }
-          
-          // Check Stripe service
+            // Enhanced service health checks
           if (includeServiceHealth) {
+            // Check Stripe service with detailed diagnostics
             if (this.stripeService) {              try {
-                // Simple API call to verify Stripe connection
+                const stripeStartTime = Date.now();
+                // Test with a simple API call
                 const products = await this.stripeService.syncProducts();
                 status.stripe = {
                   configured: true,
                   connected: true,
-                  service: 'stripe'
+                  service: 'stripe',
+                  response_time_ms: Date.now() - stripeStartTime,
+                  api_key_valid: true,
+                  webhook_configured: !!process.env.STRIPE_WEBHOOK_SECRET
                 };
               } catch (error: any) {
                 status.stripe = {
                   configured: true,
                   connected: false,
-                  error: error.message
+                  error: error.message,
+                  api_key_valid: false,
+                  webhook_configured: !!process.env.STRIPE_WEBHOOK_SECRET
                 };
               }
             } else {
               status.stripe = {
                 configured: false,
-                message: 'Stripe service not initialized - set STRIPE_SECRET_KEY environment variable'
+                message: 'Stripe service not initialized - set STRIPE_SECRET_KEY environment variable',
+                webhook_configured: !!process.env.STRIPE_WEBHOOK_SECRET
               };
             }
             
-            // Check Email service
+            // Check Email service with enhanced diagnostics
             if (this.emailService) {
               try {
+                const emailStartTime = Date.now();
                 const connectionTest = await this.emailService.testConnection();                status.email = {
                   configured: true,
                   connected: connectionTest.success,
-                  service: 'email'
+                  service: process.env.EMAIL_SERVICE || 'smtp',
+                  response_time_ms: Date.now() - emailStartTime,
+                  sendgrid_enabled: process.env.EMAIL_SERVICE === 'sendgrid',
+                  smtp_configured: !!(process.env.SMTP_HOST && process.env.SMTP_PORT),
+                  templates_available: true // Will be checked in collection stats
                 };
               } catch (error: any) {
                 status.email = {
                   configured: true,
                   connected: false,
-                  error: error.message
+                  error: error.message,
+                  service: process.env.EMAIL_SERVICE || 'smtp'
                 };
               }
             } else {
               status.email = {
                 configured: false,
-                message: 'Email service not initialized - set EMAIL_SERVICE environment variable'
+                message: 'Email service not initialized - set EMAIL_SERVICE environment variable',
+                sendgrid_enabled: false,
+                smtp_configured: !!(process.env.SMTP_HOST && process.env.SMTP_PORT)
               };
             }
           }
-          
-          // Collection statistics
+            // Enhanced collection statistics
           if (includeCollectionStats) {
-            const collections = ['users', 'stripe_products', 'stripe_customers', 'stripe_subscriptions', 'email_templates', 'email_logs'];
+            const essentialCollections = [
+              'users', 'stripe_products', 'stripe_customers', 'stripe_subscriptions', 
+              'email_templates', 'email_logs', 'user_profiles', 'payment_history',
+              'webhook_events', 'user_registrations', 'subscription_history'
+            ];
             status.collections = {};
             
-            for (const collection of collections) {
+            for (const collection of essentialCollections) {
               try {
                 const records = await this.pb.collection(collection).getList(1, 1);
                 status.collections[collection] = {
                   exists: true,
-                  total_records: records.totalItems || 0
+                  total_records: records.totalItems || 0,
+                  is_essential: ['users', 'stripe_subscriptions', 'email_templates'].includes(collection)
                 };
               } catch (error: any) {
                 status.collections[collection] = {
                   exists: false,
-                  error: error.message
+                  error: error.message,
+                  is_essential: ['users', 'stripe_subscriptions', 'email_templates'].includes(collection)
                 };
               }
             }
+            
+            // Check email templates specifically
+            if (status.collections.email_templates?.exists) {
+              try {
+                const templates = await this.pb.collection('email_templates').getFullList();
+                const templateNames = templates.map(t => t.name);
+                const requiredTemplates = [
+                  'welcome', 'payment_success', 'payment_failed', 'subscription_created',
+                  'subscription_canceled', 'subscription_renewed'
+                ];
+                
+                status.collections.email_templates.template_names = templateNames;
+                status.collections.email_templates.required_templates_missing = 
+                  requiredTemplates.filter(t => !templateNames.includes(t));
+              } catch (error: any) {
+                status.collections.email_templates.template_check_error = error.message;
+              }
+            }
           }
-          
-          // Production readiness recommendations
+            // Enhanced production readiness recommendations
           if (includeRecommendations) {
             const recommendations = [];
+            const warnings = [];
+            const criticalIssues = [];
             
+            // Authentication checks
             if (!status.pocketbase?.authenticated) {
-              recommendations.push('Setup admin authentication for production deployment');
+              criticalIssues.push('Setup admin authentication for production deployment');
             }
             
+            // Service configuration checks
             if (!status.stripe?.configured) {
-              recommendations.push('Configure Stripe for payment processing');
+              recommendations.push('Configure Stripe for payment processing (set STRIPE_SECRET_KEY)');
             }
             
             if (!status.email?.configured) {
-              recommendations.push('Configure email service for user communications');
+              warnings.push('Configure email service for user communications (set EMAIL_SERVICE)');
             }
             
-            if (status.collections && Object.values(status.collections).some((c: any) => !c.exists)) {
-              recommendations.push('Run setup_complete_saas_backend to create missing collections');
+            // Collection checks
+            if (status.collections) {
+              const missingEssential = Object.entries(status.collections)
+                .filter(([name, info]: [string, any]) => info.is_essential && !info.exists)
+                .map(([name]) => name);
+              
+              if (missingEssential.length > 0) {
+                criticalIssues.push(`Create missing essential collections: ${missingEssential.join(', ')}`);
+              }
+              
+              // Template checks
+              if (status.collections.email_templates?.required_templates_missing?.length > 0) {
+                warnings.push(`Create missing email templates: ${status.collections.email_templates.required_templates_missing.join(', ')}`);
+              }
             }
             
-            if (status.email?.configured && status.collections?.email_templates?.total_records === 0) {
-              recommendations.push('Create default email templates using email_create_default_templates');
+            // Environment variable checks
+            const missingEnvVars = [];
+            if (!process.env.POCKETBASE_URL) missingEnvVars.push('POCKETBASE_URL');
+            if (!process.env.APP_NAME) missingEnvVars.push('APP_NAME (recommended)');
+            if (!process.env.SUPPORT_EMAIL) missingEnvVars.push('SUPPORT_EMAIL (recommended)');
+            
+            if (missingEnvVars.length > 0) {
+              recommendations.push(`Set environment variables: ${missingEnvVars.join(', ')}`);
             }
             
-            status.recommendations = recommendations;
-            status.production_ready = recommendations.length === 0;
+            // Security recommendations
+            if (includeSecurityChecks) {
+              recommendations.push('Review collection access rules for production security');
+              recommendations.push('Enable HTTPS for production deployment');
+              recommendations.push('Set up monitoring and alerting for payment failures');
+            }
+            
+            status.recommendations = {
+              critical: criticalIssues,
+              warnings: warnings,
+              suggestions: recommendations,
+              total_issues: criticalIssues.length + warnings.length
+            };
+            
+            status.production_ready = criticalIssues.length === 0;
+          }
+            // Performance metrics
+          if (includePerformanceMetrics) {
+            status.performance = {
+              total_check_time_ms: Date.now() - startTime,
+              pocketbase_response_time: status.pocketbase?.response_time_ms || 0,
+              stripe_response_time: status.stripe?.response_time_ms || 0,
+              email_response_time: status.email?.response_time_ms || 0,
+              collections_checked: Object.keys(status.collections || {}).length
+            };
           }
           
-          // Overall status
+          // Overall status calculation
           const issues = [];
           if (!status.pocketbase?.connected) issues.push('pocketbase');
           if (status.stripe?.configured && !status.stripe?.connected) issues.push('stripe');
           if (status.email?.configured && !status.email?.connected) issues.push('email');
           
-          status.overall_status = issues.length === 0 ? 'healthy' : 'degraded';
+          // Factor in critical issues from recommendations
+          const hasCriticalIssues = status.recommendations?.critical?.length > 0;
+          
+          if (issues.length === 0 && !hasCriticalIssues) {
+            status.overall_status = 'healthy';
+          } else if (issues.length > 0 || hasCriticalIssues) {
+            status.overall_status = 'degraded';
+          } else {
+            status.overall_status = 'operational';
+          }
+          
           status.issues = issues;
+          status.health_score = Math.max(0, 100 - (issues.length * 25) - (status.recommendations?.total_issues || 0) * 10);
           
           return {
             content: [{ type: 'text', text: JSON.stringify(status, null, 2) }]
