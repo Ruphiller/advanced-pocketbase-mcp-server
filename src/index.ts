@@ -1696,17 +1696,15 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Batch update tool
+    );    // Batch update tool
     this.server.tool(
       'batch_update_records',
       {
-        collection: z.string().describe('Collection name'),
+        collection: z.string().describe('Collection name where records will be updated (e.g., "users", "products"). All records must belong to this collection.'),
         records: z.array(z.object({
-          id: z.string().describe('Record ID to update'),
-          data: z.record(z.any()).describe('Data to update')
-        })).describe('Array of records to update')
+          id: z.string().describe('Unique identifier of the record to update (15-character string like "abc123def456xyz")'),
+          data: z.record(z.any()).describe('Object containing field values to update. Only include fields that need changes - missing fields remain unchanged. Use proper data types matching collection schema.')
+        })).describe('Array of record update operations. Each operation updates one record. Operations execute sequentially with individual error handling for partial success scenarios.')
       },
       async ({ collection, records }) => {
         const results: any[] = [];
@@ -1739,14 +1737,12 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    // Batch delete tool
+    );    // Batch delete tool
     this.server.tool(
       'batch_delete_records',
       {
-        collection: z.string().describe('Collection name'),
-        recordIds: z.array(z.string()).describe('Array of Record IDs to delete')
+        collection: z.string().describe('Collection name where records will be deleted (e.g., "users", "products"). All specified records must belong to this collection.'),
+        recordIds: z.array(z.string()).describe('Array of unique record identifiers to delete (each 15-character string like "abc123def456xyz"). Warning: Deletions cannot be undone! Operations execute sequentially with individual error handling.')
       },
       async ({ collection, recordIds }) => {
         const results: any[] = [];
@@ -1778,17 +1774,16 @@ class PocketBaseServer {
           };
         }
       }
-    );
-      // Batch operations tool - Sequential implementation since batch API is not available
+    );      // Batch operations tool - Sequential implementation since batch API is not available
     this.server.tool(
       'execute_batch_operations',
       {
         operations: z.array(z.object({
-          operation: z.enum(['create', 'update', 'delete']).describe('Operation type'),
-          collection: z.string().describe('Collection name'),
-          id: z.string().optional().describe('Record ID (required for update and delete)'),
-          data: z.record(z.any()).optional().describe('Record data (required for create and update)')
-        })).describe('Array of operations to execute sequentially')
+          operation: z.enum(['create', 'update', 'delete']).describe('Operation type: "create" for new records, "update" for modifying existing records, "delete" for removing records'),
+          collection: z.string().describe('Collection name where the operation will be performed (e.g., "users", "products")'),
+          id: z.string().optional().describe('Record identifier required for update/delete operations (15-character string like "abc123def456xyz"). Not needed for create operations.'),
+          data: z.record(z.any()).optional().describe('Record data object required for create/update operations. Must match collection schema. Not needed for delete operations.')
+        })).describe('Array of mixed operations (create, update, delete) executed sequentially across potentially different collections. Each operation is independent with individual error handling.')
       },
       async ({ operations }) => {
         const results: any[] = [];
@@ -2035,18 +2030,16 @@ class PocketBaseServer {
       }
     );    // === STRIPE PAYMENT PROCESSING TOOLS ===
     // Note: These tools are always registered for discovery, but require STRIPE_SECRET_KEY at runtime
-    
-    // Stripe Product Management
+      // Stripe Product Management
     this.server.tool(
       'stripe_create_product',
       {
-        name: z.string().describe('Product name'),
-        description: z.string().optional().describe('Product description'),
-        price: z.number().describe('Price in cents'),
-        currency: z.string().default('usd').describe('Currency code'),
-        recurring: z.boolean().optional().describe('Is this a subscription?'),
-        interval: z.enum(['month', 'year', 'week', 'day']).optional().describe('Billing interval for subscriptions'),
-        metadata: z.record(z.any()).optional().describe('Additional metadata')
+        name: z.string().describe('Product name for Stripe catalog (e.g., "Premium Subscription", "One-time Setup Fee"). Will be visible to customers.'),
+        description: z.string().optional().describe('Product description for customer display (e.g., "Monthly premium plan with advanced features"). Optional but recommended for clarity.'),
+        price: z.number().describe('Price in smallest currency unit (cents for USD, e.g., 1999 for $19.99). Cannot be changed once created - create new price for changes.'),        currency: z.string().default('usd').describe('ISO 4217 currency code (e.g., "usd", "eur", "gbp"). Defaults to USD if not specified.'),
+        recurring: z.boolean().optional().describe('True for subscription products (recurring billing), false for one-time payments. Determines billing behavior.'),
+        interval: z.enum(['month', 'year', 'week', 'day']).optional().describe('Billing frequency for subscriptions (e.g., "month" for monthly billing). Required if recurring=true, ignored for one-time products.'),
+        metadata: z.record(z.any()).optional().describe('Custom key-value pairs for internal tracking (e.g., {"category": "premium", "source": "admin"}). Not visible to customers.')
       },
       async ({ name, description, price, currency, recurring, interval, metadata }) => {
         try {
@@ -2084,10 +2077,10 @@ class PocketBaseServer {
     );      this.server.tool(
         'stripe_create_customer',
         {
-          email: z.string().email().describe('Customer email'),
-          name: z.string().optional().describe('Customer name'),
-          userId: z.string().optional().describe('Associated user ID'),
-          metadata: z.record(z.any()).optional().describe('Additional metadata')
+          email: z.string().email().describe('Customer email address (must be valid email format like "user@example.com"). Used for receipts, notifications, and customer identification.'),
+          name: z.string().optional().describe('Customer full name (e.g., "John Smith"). Displayed on invoices and receipts. Optional but recommended for better customer experience.'),
+          userId: z.string().optional().describe('Internal user ID from your system (e.g., PocketBase user record ID). Links Stripe customer to your user records for data consistency.'),
+          metadata: z.record(z.any()).optional().describe('Custom tracking data (e.g., {"plan_tier": "premium", "signup_source": "web"}). Max 50 keys, each key/value up to 500 characters.')
         },
         async ({ email, name, userId, metadata }) => {
           try {
@@ -2153,16 +2146,14 @@ class PocketBaseServer {
               isError: true
             };
           }
-        }      );
-
-      this.server.tool(
+        }      );      this.server.tool(
         'stripe_create_payment_intent',
         {
-          amount: z.number().describe('Amount in cents'),
-          currency: z.string().default('usd').describe('Currency code'),
-          customerId: z.string().optional().describe('Stripe customer ID'),
-          description: z.string().optional().describe('Payment description'),
-          metadata: z.record(z.any()).optional().describe('Payment metadata')
+          amount: z.number().describe('Payment amount in smallest currency unit (cents for USD, e.g., 2500 for $25.00). Must be at least 50 cents in most currencies.'),
+          currency: z.string().default('usd').describe('ISO 4217 currency code (e.g., "usd", "eur", "gbp"). Determines payment methods available and processing rules.'),
+          customerId: z.string().optional().describe('Stripe customer ID to associate with payment (e.g., "cus_xxxxx"). Enables saved payment methods and customer history tracking.'),
+          description: z.string().optional().describe('Payment description for internal tracking (e.g., "Premium subscription renewal"). Shown in Stripe dashboard and receipts.'),
+          metadata: z.record(z.any()).optional().describe('Custom payment tracking data (e.g., {"order_id": "12345", "product": "premium"}). Useful for reconciliation and analytics.')
         },
         async ({ amount, currency, customerId, description, metadata }) => {
           try {
@@ -2744,16 +2735,16 @@ class PocketBaseServer {
     );    this.server.tool(
       'email_send_templated',
       {
-        template: z.string().describe('Template name'),
-        to: z.string().email().describe('Recipient email'),
-        from: z.string().email().optional().describe('Sender email'),
-        variables: z.record(z.any()).optional().describe('Template variables'),
-        customSubject: z.string().optional().describe('Custom subject override'),
+        template: z.string().describe('Template name from email_templates collection (e.g., "welcome", "password_reset"). Template must exist or tool will fail.'),
+        to: z.string().email().describe('Recipient email address (must be valid email format like "user@example.com")'),
+        from: z.string().email().optional().describe('Sender email address. If not provided, uses DEFAULT_FROM_EMAIL or SMTP_USER environment variable.'),
+        variables: z.record(z.any()).optional().describe('Template variables object for Handlebars interpolation (e.g., {"userName": "John", "appName": "MyApp"}). Variables replace {{variableName}} placeholders in template.'),
+        customSubject: z.string().optional().describe('Override the template default subject line. If not provided, uses template subject with variable interpolation.'),
         // Optional SendGrid-specific parameters (backward compatible)
-        categories: z.array(z.string()).optional().describe('SendGrid categories for email tracking (optional, SendGrid only)'),
-        customArgs: z.record(z.string()).optional().describe('SendGrid custom arguments for tracking (optional, SendGrid only)'),
-        enableClickTracking: z.boolean().optional().describe('Enable click tracking (optional, SendGrid only)'),
-        enableOpenTracking: z.boolean().optional().describe('Enable open tracking (optional, SendGrid only)')
+        categories: z.array(z.string()).optional().describe('SendGrid categories for email organization and tracking (e.g., ["onboarding", "welcome"]). Only works with EMAIL_SERVICE=sendgrid, ignored for SMTP.'),
+        customArgs: z.record(z.string()).optional().describe('SendGrid custom arguments for analytics tracking (e.g., {"userId": "123", "campaignId": "summer2024"}). Only works with SendGrid.'),
+        enableClickTracking: z.boolean().optional().describe('Enable SendGrid click tracking for links in email. Only works with SendGrid service, ignored for SMTP.'),
+        enableOpenTracking: z.boolean().optional().describe('Enable SendGrid open tracking to detect when emails are opened. Only works with SendGrid service, ignored for SMTP.')
       },
       async ({ template, to, from, variables, customSubject, categories, customArgs, enableClickTracking, enableOpenTracking }) => {
         try {
@@ -2877,18 +2868,16 @@ class PocketBaseServer {
           };
         }
       }
-    );
-
-    this.server.tool(
+    );    this.server.tool(
       'email_schedule_templated',
       {
-        template: z.string().describe('Template name'),
-        to: z.string().email().describe('Recipient email'),
-        sendAt: z.string().describe('ISO 8601 datetime string for when to send the email'),
-        from: z.string().email().optional().describe('Sender email'),
-        variables: z.record(z.any()).optional().describe('Template variables'),
-        customSubject: z.string().optional().describe('Custom subject override'),
-        categories: z.array(z.string()).optional().describe('SendGrid categories for email tracking')
+        template: z.string().describe('Template name from email_templates collection to send (e.g., "newsletter", "reminder"). Template must exist.'),
+        to: z.string().email().describe('Recipient email address (must be valid email format like "user@example.com")'),
+        sendAt: z.string().describe('ISO 8601 datetime string for scheduled delivery (e.g., "2024-12-25T10:00:00Z"). SendGrid supports scheduling up to 72 hours in advance. For SMTP, emails send immediately.'),
+        from: z.string().email().optional().describe('Sender email address. If not provided, uses DEFAULT_FROM_EMAIL environment variable.'),
+        variables: z.record(z.any()).optional().describe('Template variables for Handlebars interpolation (e.g., {"name": "John", "date": "2024-12-25"}). Variables replace {{variableName}} in template.'),
+        customSubject: z.string().optional().describe('Override template default subject. If not provided, uses template subject with variable interpolation.'),
+        categories: z.array(z.string()).optional().describe('SendGrid categories for email organization (e.g., ["scheduled", "newsletter"]). Only works with EMAIL_SERVICE=sendgrid.')
       },
       async ({ template, to, sendAt, from, variables, customSubject, categories }) => {
         try {
