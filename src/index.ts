@@ -3364,11 +3364,11 @@ class PocketBaseServer {
     this.server.tool(
       'register_user_with_automation',
       {
-        email: z.string().email().describe('User email address for registration and notifications'),
-        password: z.string().min(8).describe('User password (minimum 8 characters for security)'),
-        userData: z.record(z.any()).optional().describe('Additional user profile data (name, phone, preferences, etc.)'),
-        sendWelcomeEmail: z.boolean().optional().default(true).describe('Automatically send welcome email using template "welcome"'),
-        createStripeCustomer: z.boolean().optional().default(true).describe('Create corresponding Stripe customer for payment processing')
+        email: z.string().email().describe('User email address for registration and all future communications (must be valid email format like "user@example.com")'),
+        password: z.string().min(8).describe('User password (minimum 8 characters for security compliance). Should contain mix of letters, numbers, symbols for strength.'),
+        userData: z.record(z.any()).optional().describe('Additional user profile data (e.g., {"name": "John Smith", "phone": "+1234567890", "preferences": {"marketing": true}}). All fields optional.'),
+        sendWelcomeEmail: z.boolean().optional().default(true).describe('Automatically send welcome email using template "welcome". Requires email service configuration (SMTP or SendGrid).'),
+        createStripeCustomer: z.boolean().optional().default(true).describe('Create corresponding Stripe customer for future payment processing. Requires STRIPE_SECRET_KEY environment variable.')
       },
       async ({ email, password, userData = {}, sendWelcomeEmail, createStripeCustomer }) => {
         try {
@@ -3451,14 +3451,14 @@ class PocketBaseServer {
     this.server.tool(
       'create_subscription_flow',
       {
-        customerId: z.string().describe('Stripe customer ID (get from register_user_with_automation or stripe_create_customer)'),
-        priceId: z.string().describe('Stripe price ID for the subscription plan (created via Stripe dashboard or API)'),
-        userEmail: z.string().email().describe('User email address for subscription confirmation and notifications'),
-        metadata: z.record(z.any()).optional().describe('Custom metadata for subscription tracking (plan_name, source, campaign_id, etc.)'),
-        sendConfirmationEmail: z.boolean().optional().default(true).describe('Send subscription confirmation email using template "subscription_created"'),
-        trialPeriodDays: z.number().optional().describe('Number of days for free trial period (optional)'),
-        promotionCode: z.string().optional().describe('Stripe promotion code to apply to subscription (optional)')
-      },      async ({ customerId, priceId, userEmail, metadata = {}, sendConfirmationEmail, trialPeriodDays, promotionCode }) => {
+        customerId: z.string().describe('Stripe customer ID (e.g., "cus_xxxxx" from register_user_with_automation or stripe_create_customer). Must be existing valid customer.'),
+        priceId: z.string().describe('Stripe price ID for subscription plan (e.g., "price_xxxxx" from Stripe dashboard or stripe_create_product). Determines billing amount and frequency.'),
+        userEmail: z.string().email().describe('User email address for subscription confirmation and billing notifications. Should match customer email for consistency.'),
+        metadata: z.record(z.any()).optional().describe('Custom subscription tracking data (e.g., {"plan_name": "Premium", "source": "website", "campaign_id": "summer2024"}). Useful for analytics and customer support.'),
+        sendConfirmationEmail: z.boolean().optional().default(true).describe('Send subscription confirmation email using template "subscription_created". Includes subscription details, trial info, and billing dates.'),
+        trialPeriodDays: z.number().optional().describe('Number of days for free trial period (e.g., 7, 14, 30). Customer not charged until trial ends. Must be positive integer.'),
+        promotionCode: z.string().optional().describe('Stripe promotion code to apply discount (e.g., "SAVE20", "NEWUSER"). Must be active and valid promotion code from Stripe.')
+      },async ({ customerId, priceId, userEmail, metadata = {}, sendConfirmationEmail, trialPeriodDays, promotionCode }) => {
         try {
           const results: any = {};
           
@@ -3571,11 +3571,11 @@ class PocketBaseServer {
     this.server.tool(
       'process_payment_webhook_with_email',
       {
-        webhookPayload: z.record(z.any()).describe('Complete Stripe webhook payload (includes type, data, id, created fields)'),
-        webhookSignature: z.string().describe('Stripe webhook signature header (stripe-signature) for security verification'),
-        sendNotifications: z.boolean().optional().default(true).describe('Automatically send email notifications for payment events (payment_intent.succeeded, payment_intent.payment_failed, etc.)'),
-        customEmailTemplates: z.record(z.string()).optional().describe('Override default email templates for specific events (e.g., {"payment_intent.succeeded": "custom_payment_success"})')
-      },      async ({ webhookPayload, webhookSignature, sendNotifications, customEmailTemplates = {} }) => {
+        webhookPayload: z.record(z.any()).describe('Complete Stripe webhook payload object from webhook endpoint (includes type, data, id, created, livemode fields). Contains full event information from Stripe.'),
+        webhookSignature: z.string().describe('Stripe webhook signature header value from "stripe-signature" header. Required for security verification to ensure webhook authenticity and prevent replay attacks.'),
+        sendNotifications: z.boolean().optional().default(true).describe('Automatically send contextual email notifications for payment events (payment success, failure, subscription changes). Uses appropriate templates based on event type.'),
+        customEmailTemplates: z.record(z.string()).optional().describe('Override default email templates for specific events (e.g., {"payment_intent.succeeded": "custom_payment_success", "invoice.payment_failed": "custom_payment_retry"}). Template names from email_templates collection.')
+      },async ({ webhookPayload, webhookSignature, sendNotifications, customEmailTemplates = {} }) => {
         try {
           const results: any = {};
           
@@ -3942,13 +3942,13 @@ class PocketBaseServer {
     this.server.tool(
       'cancel_subscription_with_email',
       {
-        subscriptionId: z.string().describe('Stripe subscription ID to cancel (get from subscription records or Stripe dashboard)'),
-        reason: z.string().optional().describe('Cancellation reason for tracking and analytics (user_request, payment_failed, upgrade, etc.)'),
-        sendNotification: z.boolean().optional().default(true).describe('Send cancellation confirmation email to customer'),
-        offerRetention: z.boolean().optional().default(false).describe('Include retention offer in cancellation email (discount, pause, downgrade options)'),
-        cancelAtPeriodEnd: z.boolean().optional().default(false).describe('Cancel at period end (allows customer to use service until billing period expires)'),
-        collectFeedback: z.boolean().optional().default(true).describe('Include feedback collection link in cancellation email')
-      },      async ({ subscriptionId, reason, sendNotification, offerRetention, cancelAtPeriodEnd, collectFeedback }) => {
+        subscriptionId: z.string().describe('Stripe subscription ID to cancel (e.g., "sub_xxxxx" from subscription records or Stripe dashboard). Must be active subscription.'),
+        reason: z.string().optional().describe('Cancellation reason for analytics tracking (e.g., "user_request", "payment_failed", "upgrade", "too_expensive"). Stored for retention analysis.'),
+        sendNotification: z.boolean().optional().default(true).describe('Send cancellation confirmation email to customer using template "subscription_canceled". Includes access details and next steps.'),
+        offerRetention: z.boolean().optional().default(false).describe('Include retention offer in cancellation email (discount codes, pause options, downgrade alternatives). Uses "subscription_canceled_with_offer" template.'),
+        cancelAtPeriodEnd: z.boolean().optional().default(false).describe('Cancel at current period end (true) vs immediate cancellation (false). Period-end allows continued access until billing cycle completes.'),
+        collectFeedback: z.boolean().optional().default(true).describe('Include feedback collection link in cancellation email for product improvement insights. Links to survey or feedback form.')
+      },async ({ subscriptionId, reason, sendNotification, offerRetention, cancelAtPeriodEnd, collectFeedback }) => {
         try {
           const results: any = {};
           
