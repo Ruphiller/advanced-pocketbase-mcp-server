@@ -130,54 +130,615 @@ class PocketBaseServer {
       process.exit(0);
     });
   }
-
   private setupPrompts() {
-    // Collection creation prompt
+    // === BASIC DEVELOPMENT PROMPTS ===
+    
+    // Enhanced collection creation prompt
     this.server.prompt(
       "create-collection",
-      "Create a new collection with specified fields",
+      "Create a new collection with comprehensive schema design",
       async (extra: RequestHandlerExtra) => ({
         messages: [{
           role: "user",
           content: {
             type: "text",
-            text: `Create a new collection with specified fields`
+            text: `Create a new PocketBase collection with a well-designed schema. Consider:
+
+🏗️ **Schema Design Best Practices:**
+- Field naming conventions (camelCase, descriptive names)
+- Proper data types (text, number, bool, email, url, date, select, json, file, relation)
+- Required vs optional fields
+- Field validation options
+- Relationship definitions
+
+📝 **Common Collection Types:**
+- **Users**: email, name, avatar, preferences, role
+- **Posts**: title, content, author (relation), published, tags
+- **Products**: name, description, price, category, images
+- **Orders**: customer (relation), items (json), total, status
+
+🔒 **Security Considerations:**
+- Access rules (listRule, viewRule, createRule, updateRule, deleteRule)
+- User authentication requirements
+- Data privacy and permissions
+
+Please specify the collection name, intended purpose, and required fields.`
           }
         }]
       })
     );
 
-    // Record creation prompt
+    // Enhanced record creation prompt
     this.server.prompt(
       "create-record",
-      "Create a new record in a collection",
+      "Create a new record with proper data validation",
       async (extra: RequestHandlerExtra) => ({
         messages: [{
           role: "user",
           content: {
             type: "text",
-            text: `Create a new record in a collection`
+            text: `Create a new record in a PocketBase collection with proper data validation:
+
+📋 **Record Creation Guidelines:**
+- Match the collection schema exactly
+- Use proper data types (strings, numbers, booleans, arrays, objects)
+- Include all required fields
+- Follow field validation rules
+- Consider relationships and foreign keys
+
+🎯 **Common Record Patterns:**
+- **User Record**: {"email": "user@example.com", "name": "John Doe", "verified": false}
+- **Post Record**: {"title": "My Post", "content": "Content here", "author": "user_id", "published": true}
+- **Product Record**: {"name": "Product", "price": 29.99, "category": "electronics", "in_stock": true}
+
+⚠️ **Important Notes:**
+- Use create_record tool for new records
+- Check collection schema first with get_collection_schema
+- Validate required fields and data types
+
+Specify the target collection and the data you want to store.`
           }
         }]
       })
     );
 
-    // Query builder prompt
+    // Enhanced query builder prompt
     this.server.prompt(
       "build-query",
-      "Build a query for a collection with filters, sorting, and expansion",
+      "Build advanced queries with filtering, sorting, and relationships",
       async (extra: RequestHandlerExtra) => ({
         messages: [{
           role: "user",
           content: {
             type: "text",
-            text: `Build a query for a collection with filters, sorting, and expansion`
+            text: `Build an advanced PocketBase query with comprehensive options:
+
+🔍 **Query Building Components:**
+- **Filters**: Use PocketBase filter syntax (e.g., "status = 'active' && created >= '2024-01-01'")
+- **Sorting**: Field names with direction (e.g., "-created", "+name", "title,-updated")
+- **Pagination**: page and perPage parameters for performance
+- **Expansion**: Load related records (e.g., "author,category,tags")
+
+📊 **Advanced Filter Examples:**
+- Date ranges: "created >= '2024-01-01' && created <= '2024-12-31'"
+- Text search: "title ~ 'keyword' || content ~ 'keyword'"
+- Number comparisons: "price >= 10 && price <= 100"
+- Boolean filters: "published = true && featured = false"
+- Relation filters: "author.role = 'admin'"
+
+⚡ **Performance Tips:**
+- Use indexes for frequently filtered fields
+- Limit page size (max 500 records)
+- Use specific filters to reduce data transfer
+- Consider expand only when needed
+
+🛠️ **Available Tools:**
+- list_records: Basic querying with filters and pagination
+- build_filter: Safe parameter binding to prevent injection
+- get_collection_schema: Check available fields and relationships
+
+Describe your query requirements including collection, filters, sorting needs, and any relationships to expand.`
+          }
+        }]
+      })
+    );
+
+    // === HIGH-PRIORITY SAAS DEVELOPMENT PROMPTS ===
+
+    // Complete SaaS backend setup
+    this.server.prompt(
+      "setup-saas-backend",
+      "Set up a complete SaaS backend with user management, payments, and email templates",
+      async (extra: RequestHandlerExtra) => ({
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `🚀 **Complete SaaS Backend Setup**
+
+Set up a production-ready SaaS backend in minutes with all essential components:
+
+💼 **Core SaaS Features:**
+- User management with authentication
+- Stripe payment processing and subscriptions
+- Email templates and notifications
+- Analytics and user tracking
+- Webhook processing and automation
+
+🏗️ **Setup Components:**
+1. **Collections Setup**: Users, subscriptions, payments, email templates, analytics
+2. **Stripe Integration**: Products, prices, customers, webhooks
+3. **Email System**: Welcome emails, payment confirmations, subscription notifications
+4. **Security Rules**: Proper access controls and user permissions
+5. **Analytics**: User activity tracking and business metrics
+
+🔧 **Required Configuration:**
+- Environment variables (Stripe keys, email service, app settings)
+- Collection schemas and relationships
+- Access rules and permissions
+- Default email templates
+- Webhook endpoints
+
+📋 **Available Setup Tools:**
+- setup_complete_saas_backend: One-click complete setup
+- stripe_create_product: Create subscription plans
+- email_create_template: Design email templates
+- register_user_with_automation: Complete user onboarding
+
+🎯 **Business Types Supported:**
+- SaaS applications with subscriptions
+- E-commerce platforms
+- Content management systems
+- User-generated content platforms
+- Service marketplaces
+
+Specify your business type, required features, and any specific customizations needed.`
+          }
+        }]
+      })
+    );
+
+    // Subscription plan creation
+    this.server.prompt(
+      "create-subscription-plan",
+      "Create a comprehensive subscription plan with pricing and features",
+      async (extra: RequestHandlerExtra) => ({
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `💰 **Subscription Plan Creation**
+
+Design and implement a complete subscription plan with Stripe integration:
+
+📊 **Plan Structure:**
+- **Basic/Starter**: Essential features, lower price point
+- **Professional**: Advanced features, most popular
+- **Enterprise**: Full features, custom pricing
+
+💵 **Pricing Considerations:**
+- Price in smallest currency unit (cents for USD)
+- Billing intervals: monthly, yearly, or custom
+- Free trial periods and promotional pricing
+- Multi-tier feature access
+
+🎯 **Feature Configuration:**
+- Usage limits (API calls, storage, users)
+- Feature toggles (analytics, integrations, support)
+- Access levels (basic, premium, enterprise)
+
+🔧 **Implementation Tools:**
+- stripe_create_product: Create the subscription product
+- stripe_create_price: Set pricing and billing intervals
+- create_collection: Store plan features and limits
+- email_create_template: Plan upgrade/downgrade notifications
+
+📈 **Best Practices:**
+- Clear value proposition per tier
+- Logical feature progression
+- Competitive pricing analysis
+- Easy upgrade/downgrade flows
+
+📋 **Required Information:**
+- Plan names and descriptions
+- Pricing structure and billing intervals
+- Feature sets and usage limits
+- Trial periods and promotions
+
+Describe your subscription model, target pricing, and feature differentiation.`
+          }
+        }]
+      })
+    );
+
+    // User onboarding workflow
+    this.server.prompt(
+      "setup-user-onboarding",
+      "Design a comprehensive user onboarding flow with email sequences",
+      async (extra: RequestHandlerExtra) => ({
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `👋 **User Onboarding Flow Design**
+
+Create a seamless user onboarding experience that maximizes activation and retention:
+
+📝 **Onboarding Steps:**
+1. **Account Creation**: Email verification, profile setup
+2. **Welcome Sequence**: Introduction emails, feature tours
+3. **Initial Setup**: Preferences, integrations, first actions
+4. **Activation Goals**: Key actions that indicate engagement
+5. **Follow-up**: Progress tracking, assistance offers
+
+📧 **Email Sequence Design:**
+- **Immediate**: Welcome email with account verification
+- **Day 1**: Getting started guide and quick wins
+- **Day 3**: Feature spotlight and use cases
+- **Day 7**: Success stories and advanced features
+- **Day 14**: Check-in and support offer
+
+🎯 **Data Collection Strategy:**
+- Essential vs optional information
+- Progressive profiling over time
+- User preferences and interests
+- Usage patterns and behavior
+
+🔧 **Technical Implementation:**
+- register_user_with_automation: Complete registration flow
+- email_schedule_templated: Timed email sequences
+- create_user: Basic account creation
+- Analytics tracking for conversion optimization
+
+📊 **Success Metrics:**
+- Email open and click rates
+- Feature adoption rates
+- Time to first value
+- User activation percentage
+
+🚀 **Onboarding Types:**
+- **Product Tour**: Interactive feature introduction
+- **Progressive Setup**: Gradual configuration
+- **Use Case Based**: Tailored to user goals
+- **Guided First Success**: Achieving initial value quickly
+
+Describe your product, target users, and key activation goals for the onboarding flow.`
+          }
+        }]
+      })
+    );
+
+    // Payment workflow setup
+    this.server.prompt(
+      "create-payment-workflow",
+      "Set up payment processing with webhooks and email notifications",
+      async (extra: RequestHandlerExtra) => ({
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `💳 **Payment Workflow Setup**
+
+Implement a complete payment processing system with Stripe integration:
+
+🔄 **Payment Flow Components:**
+1. **Customer Creation**: Stripe customer records with metadata
+2. **Payment Processing**: One-time payments and subscriptions
+3. **Webhook Handling**: Real-time payment status updates
+4. **Email Notifications**: Payment confirmations and receipts
+5. **Failure Recovery**: Retry logic and customer communication
+
+💰 **Payment Types:**
+- **One-time Payments**: Products, services, credits
+- **Subscriptions**: Recurring billing with trial periods
+- **Usage-based Billing**: Metered pricing models
+- **Marketplace Payments**: Multi-party transactions
+
+🔔 **Webhook Events:**
+- payment_intent.succeeded: Payment completion
+- payment_intent.payment_failed: Failed payment handling
+- invoice.payment_succeeded: Subscription billing success
+- customer.subscription.created: New subscription setup
+- customer.subscription.canceled: Cancellation processing
+
+📧 **Email Automation:**
+- Payment confirmation with receipt details
+- Subscription activation notifications
+- Failed payment alerts and retry instructions
+- Upgrade/downgrade confirmations
+- Cancellation confirmations with retention offers
+
+🛠️ **Implementation Tools:**
+- stripe_create_customer: Customer record creation
+- stripe_create_payment_intent: Payment processing
+- stripe_create_checkout_session: Hosted payment pages
+- process_payment_webhook_with_email: Complete webhook handling
+- email_send_templated: Payment-related notifications
+
+🔒 **Security Features:**
+- Webhook signature verification
+- Secure payment data handling
+- PCI compliance considerations
+- Fraud prevention measures
+
+Describe your payment model, required integrations, and specific business requirements.`
+          }
+        }]
+      })
+    );
+
+    // === DATA MODELING PROMPTS ===
+
+    // Database schema design
+    this.server.prompt(
+      "design-schema",
+      "Design a complete database schema for a specific business domain",
+      async (extra: RequestHandlerExtra) => ({
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `🗄️ **Database Schema Design**
+
+Design a comprehensive database schema optimized for your business domain:
+
+🏗️ **Schema Design Principles:**
+- **Normalization**: Reduce data redundancy and improve consistency
+- **Relationships**: Proper foreign keys and junction tables
+- **Indexing**: Performance optimization for queries
+- **Scalability**: Future growth considerations
+- **Security**: Access control and data privacy
+
+📋 **Common Business Domains:**
+- **E-commerce**: products, categories, orders, customers, inventory
+- **Content Management**: posts, authors, categories, tags, comments
+- **SaaS Platform**: users, organizations, subscriptions, usage_metrics
+- **Educational**: courses, students, instructors, enrollments, assessments
+- **Healthcare**: patients, appointments, providers, treatments, records
+
+🔗 **Relationship Types:**
+- **One-to-Many**: User → Posts, Category → Products
+- **Many-to-Many**: Users ↔ Roles, Products ↔ Tags
+- **One-to-One**: User → Profile, Order → Payment
+
+🎯 **Best Practices:**
+- Consistent naming conventions
+- Proper data types for each field
+- Required vs optional fields
+- Validation rules and constraints
+- Audit trails (created, updated, modified_by)
+
+🔧 **Schema Tools:**
+- create_collection: Create individual collections
+- update_collection_schema: Modify existing schemas
+- manage_indexes: Optimize query performance
+- set_collection_rules: Configure access controls
+
+📊 **Performance Considerations:**
+- Index frequently queried fields
+- Optimize for common query patterns
+- Consider denormalization for read-heavy operations
+- Plan for data archival and cleanup
+
+Describe your business domain, main entities, and their relationships.`
+          }
+        }]
+      })
+    );
+
+    // Relationship setup
+    this.server.prompt(
+      "create-relationships",
+      "Set up complex relationships between collections with proper access rules",
+      async (extra: RequestHandlerExtra) => ({
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `🔗 **Collection Relationships Setup**
+
+Establish proper relationships between collections with security and performance optimization:
+
+🎯 **Relationship Patterns:**
+
+**One-to-Many Relationships:**
+- User → Posts: One user creates many posts
+- Category → Products: One category contains many products
+- Order → OrderItems: One order has many line items
+
+**Many-to-Many Relationships:**
+- Users ↔ Roles: Users can have multiple roles
+- Posts ↔ Tags: Posts can have multiple tags, tags on multiple posts
+- Products ↔ Categories: Products in multiple categories
+
+**One-to-One Relationships:**
+- User → Profile: Extended user information
+- Order → Payment: Payment details for an order
+
+🔒 **Access Rule Patterns:**
+- **Owner Access**: "@request.auth.id = user_id"
+- **Public Read**: "published = true"
+- **Admin Only**: "@request.auth.role = 'admin'"
+- **Relationship Access**: "@request.auth.id = author.id"
+
+📊 **Performance Optimization:**
+- Index foreign key fields
+- Consider expand vs separate queries
+- Implement pagination for large datasets
+- Use filters to limit data transfer
+
+🛠️ **Implementation Steps:**
+1. Design relationship structure
+2. Create collections with relation fields
+3. Set up proper access rules
+4. Create indexes for performance
+5. Test query patterns and expansion
+
+🔧 **Available Tools:**
+- update_collection_schema: Add relation fields
+- set_collection_rules: Configure access permissions
+- manage_indexes: Create performance indexes
+- list_records: Test queries with expansion
+
+⚠️ **Common Pitfalls:**
+- Circular dependencies
+- Missing access rules on related collections
+- Performance issues with deep expansions
+- Inconsistent relationship directions
+
+Describe the collections you want to relate and the business logic governing their relationships.`
+          }
+        }]
+      })
+    );
+
+    // === ANALYTICS & REPORTING PROMPTS ===
+
+    // Analytics query builder
+    this.server.prompt(
+      "analytics-query",
+      "Build analytics queries with aggregations, grouping, and metrics",
+      async (extra: RequestHandlerExtra) => ({
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `📊 **Analytics Query Builder**
+
+Create powerful analytics queries to extract business insights from your data:
+
+📈 **Analytics Types:**
+
+**User Analytics:**
+- User growth over time
+- User activity and engagement metrics
+- Feature adoption rates
+- User lifecycle analysis
+
+**Business Metrics:**
+- Revenue trends and forecasting
+- Conversion funnel analysis
+- Subscription metrics (MRR, churn, LTV)
+- Product performance analytics
+
+**Operational Metrics:**
+- System performance and usage
+- Error rates and reliability
+- API usage patterns
+- Content performance metrics
+
+🔍 **Query Patterns:**
+- **Time Series**: Group by date periods (daily, weekly, monthly)
+- **Cohort Analysis**: User behavior over time segments
+- **Funnel Analysis**: Step-by-step conversion tracking
+- **Segmentation**: Performance by user groups or categories
+
+📊 **Aggregation Functions:**
+- COUNT: Record counts and occurrences
+- SUM: Revenue, usage totals
+- AVG: Average values and rates
+- MIN/MAX: Range analysis
+- DISTINCT: Unique value counts
+
+🛠️ **Implementation Approach:**
+1. Define metrics and KPIs
+2. Identify required data sources
+3. Build optimized queries
+4. Create regular reporting schedules
+5. Set up alerts and thresholds
+
+🔧 **Available Tools:**
+- list_records: Basic data retrieval with filters
+- build_filter: Safe parameter binding for complex queries
+- Advanced filtering for date ranges and conditions
+
+📅 **Common Time Periods:**
+- Real-time (last hour)
+- Daily snapshots
+- Weekly trends
+- Monthly business reviews
+- Quarterly growth analysis
+
+Describe the analytics you need, key metrics to track, and the business questions you want to answer.`
+          }
+        }]
+      })
+    );
+
+    // === EMAIL CAMPAIGN PROMPTS ===
+
+    // Email campaign design
+    this.server.prompt(
+      "email-campaign",
+      "Design email campaigns with templates, scheduling, and tracking",
+      async (extra: RequestHandlerExtra) => ({
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `📧 **Email Campaign Designer**
+
+Create engaging email campaigns with professional templates and automation:
+
+🎯 **Campaign Types:**
+
+**Transactional Emails:**
+- Welcome sequences for new users
+- Payment confirmations and receipts
+- Password reset and security notifications
+- Subscription updates and renewals
+
+**Marketing Campaigns:**
+- Product announcements and updates
+- Feature spotlight and tutorials
+- Customer success stories
+- Promotional offers and discounts
+
+**Lifecycle Emails:**
+- Onboarding sequences (Days 1, 3, 7, 14)
+- Re-engagement campaigns for inactive users
+- Upgrade/upsell campaigns
+- Retention and win-back sequences
+
+📝 **Email Design Best Practices:**
+- Clear, compelling subject lines
+- Mobile-responsive templates
+- Personalization with user data
+- Clear call-to-action buttons
+- Professional branding consistency
+
+🔧 **Technical Implementation:**
+- **Templates**: HTML/text content with variables
+- **Scheduling**: Send at optimal times
+- **Segmentation**: Target specific user groups
+- **Tracking**: Open rates, click rates, conversions
+- **A/B Testing**: Subject lines and content variations
+
+📊 **Email Metrics:**
+- Delivery rate and bounce management
+- Open rates and engagement
+- Click-through rates and conversions
+- Unsubscribe rates and list health
+- Revenue attribution from campaigns
+
+🛠️ **Available Tools:**
+- email_create_template: Design email templates
+- email_send_templated: Send personalized emails
+- email_schedule_templated: Schedule campaign delivery
+- SendGrid integration for advanced features
+
+🎨 **Template Variables:**
+- User data: {{name}}, {{email}}, {{preferences}}
+- Business data: {{appName}}, {{supportEmail}}
+- Dynamic content: {{subscriptionStatus}}, {{usageStats}}
+- Personalization: {{firstName}}, {{lastActivity}}
+
+Describe your campaign goals, target audience, and desired email sequence.`
           }
         }]
       })
     );
   }
-
   private setupResources() {
     interface CollectionInfo {
       id: string;
@@ -194,7 +755,11 @@ class PocketBaseServer {
     interface CollectionRecord {
       id: string;
       [key: string]: any;
-    }    // Server info resource
+    }
+
+    // === CORE RESOURCES ===
+    
+    // Server info resource
     this.server.resource(
       "server-info",
       "pocketbase://info",
@@ -303,7 +868,8 @@ class PocketBaseServer {
         try {
           return {
             contents: [{
-              uri: uri.href,              text: JSON.stringify({
+              uri: uri.href,
+              text: JSON.stringify({
                 isValid: this.pb.authStore.isValid,
                 token: this.pb.authStore.token,
                 record: this.pb.authStore.record
@@ -315,6 +881,1212 @@ class PocketBaseServer {
         }
       }
     );
+
+    // === PHASE 2: DYNAMIC RESOURCES ===
+
+    // === REAL-TIME ANALYTICS RESOURCES ===
+    
+    // Real-time metrics dashboard
+    this.server.resource(
+      "analytics-metrics",
+      "analytics://metrics",
+      async (uri) => {
+        try {
+          const metrics: any = {
+            timestamp: new Date().toISOString(),
+            overview: {},
+            user_metrics: {},
+            business_metrics: {},
+            technical_metrics: {}
+          };
+
+          // User metrics
+          try {
+            const totalUsers = await this.pb.collection('users').getList(1, 1);
+            metrics.user_metrics.total_users = totalUsers.totalItems;
+
+            // Active users in last 24 hours (if user_events collection exists)
+            try {
+              const yesterday = new Date();
+              yesterday.setDate(yesterday.getDate() - 1);
+              const activeUsers = await this.pb.collection('user_events').getList(1, 1, {
+                filter: `created >= "${yesterday.toISOString()}"`
+              });
+              metrics.user_metrics.active_users_24h = activeUsers.totalItems;
+            } catch {
+              metrics.user_metrics.active_users_24h = 'N/A - user_events collection not found';
+            }
+
+            // New registrations today
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const newUsers = await this.pb.collection('users').getList(1, 1, {
+              filter: `created >= "${today.toISOString()}"`
+            });
+            metrics.user_metrics.new_registrations_today = newUsers.totalItems;
+
+          } catch (error: any) {
+            metrics.user_metrics.error = `Cannot access users collection: ${error.message}`;
+          }
+
+          // Business metrics (if Stripe collections exist)
+          try {
+            const subscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+              filter: 'status = "active"'
+            });
+            metrics.business_metrics.active_subscriptions = subscriptions.totalItems;
+
+            // Monthly recurring revenue calculation
+            try {
+              const activeSubscriptions = await this.pb.collection('stripe_subscriptions').getFullList({
+                filter: 'status = "active"'
+              });
+              
+              let mrr = 0;
+              for (const sub of activeSubscriptions) {
+                // This is a simplified MRR calculation
+                if (sub.amount && sub.interval === 'month') {
+                  mrr += sub.amount / 100; // Convert from cents
+                } else if (sub.amount && sub.interval === 'year') {
+                  mrr += (sub.amount / 100) / 12; // Convert yearly to monthly
+                }
+              }
+              metrics.business_metrics.monthly_recurring_revenue = `$${mrr.toFixed(2)}`;
+            } catch {
+              metrics.business_metrics.monthly_recurring_revenue = 'Calculation unavailable';
+            }            // Payment metrics
+            try {
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const paymentsToday = await this.pb.collection('payment_history').getList(1, 1, {
+                filter: `created >= "${today.toISOString()}" && status = "succeeded"`
+              });
+              metrics.business_metrics.successful_payments_today = paymentsToday.totalItems;
+            } catch {
+              metrics.business_metrics.successful_payments_today = 'N/A';
+            }
+
+          } catch (error: any) {
+            metrics.business_metrics.info = 'Stripe collections not found - payment metrics unavailable';
+          }
+
+          // Technical metrics
+          try {
+            const collections = await this.pb.collections.getList(1, 100);
+            metrics.technical_metrics.total_collections = collections.totalItems;
+            metrics.technical_metrics.database_status = 'Connected';
+            metrics.technical_metrics.auth_status = this.pb.authStore.isValid ? 'Authenticated' : 'Not authenticated';
+            
+            // Service status
+            metrics.technical_metrics.services = {
+              stripe: !!this.stripeService ? 'Configured' : 'Not configured',
+              email: !!this.emailService ? 'Configured' : 'Not configured'
+            };
+
+          } catch (error: any) {
+            metrics.technical_metrics.database_status = `Error: ${error.message}`;
+          }
+
+          // Overview summary
+          metrics.overview = {
+            status: metrics.technical_metrics.database_status === 'Connected' ? 'Operational' : 'Degraded',
+            last_updated: metrics.timestamp,
+            health_score: this.calculateHealthScore(metrics)
+          };
+
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify(metrics, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          throw new Error(`Failed to generate analytics metrics: ${error.message}`);
+        }
+      }
+    );
+
+    // User activity analytics
+    this.server.resource(
+      "user-activity",
+      "analytics://user-activity",
+      async (uri) => {
+        try {
+          const activity: any = {
+            timestamp: new Date().toISOString(),
+            real_time: {},
+            trends: {},
+            segments: {}
+          };
+
+          // Real-time activity (last hour)
+          const lastHour = new Date();
+          lastHour.setHours(lastHour.getHours() - 1);
+
+          try {
+            // Recent user events
+            const recentEvents = await this.pb.collection('user_events').getList(1, 50, {
+              filter: `created >= "${lastHour.toISOString()}"`,
+              sort: '-created'
+            });
+
+            activity.real_time.events_last_hour = recentEvents.totalItems;
+            activity.real_time.recent_events = recentEvents.items.map((event: any) => ({
+              event_name: event.event_name,
+              user_id: event.user_id,
+              timestamp: event.created,
+              session_id: event.session_id?.substring(0, 8) + '...' // Truncate for privacy
+            }));
+
+            // Event type breakdown
+            const eventTypes: { [key: string]: number } = {};
+            recentEvents.items.forEach((event: any) => {
+              eventTypes[event.event_name] = (eventTypes[event.event_name] || 0) + 1;
+            });
+            activity.real_time.event_breakdown = eventTypes;
+
+          } catch (error: any) {
+            activity.real_time.error = `user_events collection not available: ${error.message}`;
+          }
+
+          // User trends (last 7 days)
+          const weekAgo = new Date();
+          weekAgo.setDate(weekAgo.getDate() - 7);
+
+          try {
+            const weeklyUsers = await this.pb.collection('users').getList(1, 1, {
+              filter: `created >= "${weekAgo.toISOString()}"`
+            });
+            activity.trends.new_users_this_week = weeklyUsers.totalItems;
+
+            // Daily breakdown
+            const dailyStats = [];
+            for (let i = 6; i >= 0; i--) {
+              const date = new Date();
+              date.setDate(date.getDate() - i);
+              date.setHours(0, 0, 0, 0);
+              
+              const nextDate = new Date(date);
+              nextDate.setDate(nextDate.getDate() + 1);
+
+              try {
+                const dayUsers = await this.pb.collection('users').getList(1, 1, {
+                  filter: `created >= "${date.toISOString()}" && created < "${nextDate.toISOString()}"`
+                });
+
+                dailyStats.push({
+                  date: date.toISOString().split('T')[0],
+                  new_users: dayUsers.totalItems
+                });
+              } catch {
+                dailyStats.push({
+                  date: date.toISOString().split('T')[0],
+                  new_users: 0
+                });
+              }
+            }
+            activity.trends.daily_registrations = dailyStats;
+
+          } catch (error: any) {
+            activity.trends.error = `Cannot calculate trends: ${error.message}`;
+          }
+
+          // User segments
+          try {
+            // By subscription status
+            const freeUsers = await this.pb.collection('users').getList(1, 1, {
+              filter: 'subscription_status = "free" || subscription_status = ""'
+            });
+            const premiumUsers = await this.pb.collection('users').getList(1, 1, {
+              filter: 'subscription_status = "premium"'
+            });
+            const trialUsers = await this.pb.collection('users').getList(1, 1, {
+              filter: 'subscription_status = "trial"'
+            });
+
+            activity.segments.by_subscription = {
+              free: freeUsers.totalItems,
+              premium: premiumUsers.totalItems,
+              trial: trialUsers.totalItems
+            };
+
+            // By onboarding status
+            const completedOnboarding = await this.pb.collection('users').getList(1, 1, {
+              filter: 'onboarding_completed = true'
+            });
+            const totalUsers = await this.pb.collection('users').getList(1, 1);
+            
+            activity.segments.onboarding = {
+              completed: completedOnboarding.totalItems,
+              pending: totalUsers.totalItems - completedOnboarding.totalItems,
+              completion_rate: totalUsers.totalItems > 0 ? 
+                ((completedOnboarding.totalItems / totalUsers.totalItems) * 100).toFixed(1) + '%' : '0%'
+            };
+
+          } catch (error: any) {
+            activity.segments.error = `Cannot calculate segments: ${error.message}`;
+          }
+
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify(activity, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          throw new Error(`Failed to generate user activity analytics: ${error.message}`);
+        }
+      }
+    );
+
+    // === BUSINESS INTELLIGENCE RESOURCES ===
+
+    // Daily business summary
+    this.server.resource(
+      "daily-summary",
+      "reports://daily-summary",
+      async (uri) => {
+        try {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+
+          const summary: any = {
+            date: today.toISOString().split('T')[0],
+            generated_at: new Date().toISOString(),
+            user_metrics: {},
+            business_metrics: {},
+            technical_metrics: {},
+            alerts: [],
+            recommendations: []
+          };
+
+          // User metrics for today
+          try {
+            const newUsers = await this.pb.collection('users').getList(1, 1, {
+              filter: `created >= "${today.toISOString()}" && created < "${tomorrow.toISOString()}"`
+            });
+            summary.user_metrics.new_registrations = newUsers.totalItems;
+
+            const totalUsers = await this.pb.collection('users').getList(1, 1);
+            summary.user_metrics.total_users = totalUsers.totalItems;
+
+            // User activity today
+            try {
+              const userEvents = await this.pb.collection('user_events').getList(1, 1, {
+                filter: `created >= "${today.toISOString()}"`
+              });
+              summary.user_metrics.user_events_today = userEvents.totalItems;
+
+              const activeUsers = await this.pb.collection('user_events').getList(1, 1, {
+                filter: `created >= "${today.toISOString()}"`,
+                fields: 'user_id',
+                // Note: This is a simplified way to count unique users
+              });
+              summary.user_metrics.active_users_today = activeUsers.totalItems;
+            } catch {
+              summary.user_metrics.user_events_today = 'N/A';
+              summary.user_metrics.active_users_today = 'N/A';
+            }
+
+          } catch (error: any) {
+            summary.user_metrics.error = error.message;
+          }
+
+          // Business metrics for today
+          try {
+            // New subscriptions today
+            const newSubscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+              filter: `created >= "${today.toISOString()}" && status = "active"`
+            });
+            summary.business_metrics.new_subscriptions = newSubscriptions.totalItems;
+
+            // Payments today
+            const paymentsToday = await this.pb.collection('payment_history').getList(1, 1, {
+              filter: `created >= "${today.toISOString()}" && status = "succeeded"`
+            });
+            summary.business_metrics.successful_payments = paymentsToday.totalItems;
+
+            const failedPayments = await this.pb.collection('payment_history').getList(1, 1, {
+              filter: `created >= "${today.toISOString()}" && status = "failed"`
+            });
+            summary.business_metrics.failed_payments = failedPayments.totalItems;
+
+            // Revenue today (simplified calculation)
+            try {
+              const paymentsToday = await this.pb.collection('payment_history').getFullList({
+                filter: `created >= "${today.toISOString()}" && status = "succeeded"`
+              });
+              
+              const revenue = paymentsToday.reduce((sum: number, payment: any) => {
+                return sum + (payment.amount || 0);
+              }, 0);
+              
+              summary.business_metrics.revenue_today = `$${(revenue / 100).toFixed(2)}`;
+            } catch {
+              summary.business_metrics.revenue_today = 'Calculation unavailable';
+            }
+
+            // Cancellations today
+            const cancellations = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+              filter: `updated >= "${today.toISOString()}" && status = "canceled"`
+            });
+            summary.business_metrics.cancellations = cancellations.totalItems;
+
+          } catch (error: any) {
+            summary.business_metrics.info = 'Business metrics require Stripe collections';
+          }
+
+          // Technical metrics
+          try {
+            // Email deliverability
+            const emailsSent = await this.pb.collection('email_logs').getList(1, 1, {
+              filter: `created >= "${today.toISOString()}" && status = "sent"`
+            });
+            const emailsFailed = await this.pb.collection('email_logs').getList(1, 1, {
+              filter: `created >= "${today.toISOString()}" && status = "failed"`
+            });
+
+            summary.technical_metrics.emails_sent = emailsSent.totalItems;
+            summary.technical_metrics.emails_failed = emailsFailed.totalItems;
+            summary.technical_metrics.email_success_rate = 
+              emailsSent.totalItems + emailsFailed.totalItems > 0 ?
+                `${((emailsSent.totalItems / (emailsSent.totalItems + emailsFailed.totalItems)) * 100).toFixed(1)}%` :
+                'N/A';
+
+          } catch {
+            summary.technical_metrics.email_info = 'Email metrics require email_logs collection';
+          }
+
+          // Generate alerts
+          if (summary.business_metrics.failed_payments > 5) {
+            summary.alerts.push({
+              type: 'warning',
+              message: `High number of failed payments today: ${summary.business_metrics.failed_payments}`,
+              action: 'Review payment issues and contact affected customers'
+            });
+          }
+
+          if (summary.user_metrics.new_registrations === 0) {
+            summary.alerts.push({
+              type: 'info',
+              message: 'No new user registrations today',
+              action: 'Consider marketing campaigns or review signup flow'
+            });
+          }
+
+          // Generate recommendations
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+          
+          try {
+            const yesterdayUsers = await this.pb.collection('users').getList(1, 1, {
+              filter: `created >= "${yesterday.toISOString()}" && created < "${today.toISOString()}"`
+            });
+
+            if (summary.user_metrics.new_registrations > yesterdayUsers.totalItems * 1.5) {
+              summary.recommendations.push({
+                type: 'positive',
+                message: 'User registration growth is accelerating',
+                action: 'Consider scaling infrastructure and onboarding capacity'
+              });
+            } else if (summary.user_metrics.new_registrations < yesterdayUsers.totalItems * 0.5) {
+              summary.recommendations.push({
+                type: 'attention',
+                message: 'User registrations have declined significantly',
+                action: 'Investigate potential issues with signup flow or marketing channels'
+              });
+            }
+          } catch {
+            // Skip recommendations if yesterday's data is unavailable
+          }
+
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify(summary, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          throw new Error(`Failed to generate daily summary: ${error.message}`);
+        }
+      }
+    );
+
+    // Revenue trends analysis
+    this.server.resource(
+      "revenue-trends",
+      "reports://revenue-trends",
+      async (uri) => {
+        try {
+          const trends: any = {
+            generated_at: new Date().toISOString(),
+            period: 'last_30_days',
+            summary: {},
+            daily_trends: [],
+            subscription_metrics: {},
+            growth_analysis: {}
+          };
+
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+          try {
+            // Daily revenue for the last 30 days
+            const dailyRevenue = [];
+            let totalRevenue = 0;
+            let totalTransactions = 0;
+
+            for (let i = 29; i >= 0; i--) {
+              const date = new Date();
+              date.setDate(date.getDate() - i);
+              date.setHours(0, 0, 0, 0);
+              
+              const nextDate = new Date(date);
+              nextDate.setDate(nextDate.getDate() + 1);
+
+              try {
+                const dayPayments = await this.pb.collection('payment_history').getFullList({
+                  filter: `created >= "${date.toISOString()}" && created < "${nextDate.toISOString()}" && status = "succeeded"`
+                });
+
+                const dayRevenue = dayPayments.reduce((sum: number, payment: any) => {
+                  return sum + (payment.amount || 0);
+                }, 0);
+
+                const dayRevenueUSD = dayRevenue / 100; // Convert from cents
+                totalRevenue += dayRevenueUSD;
+                totalTransactions += dayPayments.length;
+
+                dailyRevenue.push({
+                  date: date.toISOString().split('T')[0],
+                  revenue: dayRevenueUSD,
+                  transactions: dayPayments.length,
+                  average_transaction: dayPayments.length > 0 ? (dayRevenueUSD / dayPayments.length).toFixed(2) : 0
+                });
+              } catch {
+                dailyRevenue.push({
+                  date: date.toISOString().split('T')[0],
+                  revenue: 0,
+                  transactions: 0,
+                  average_transaction: 0
+                });
+              }
+            }
+
+            trends.daily_trends = dailyRevenue;
+            trends.summary = {
+              total_revenue_30_days: `$${totalRevenue.toFixed(2)}`,
+              total_transactions_30_days: totalTransactions,
+              average_daily_revenue: `$${(totalRevenue / 30).toFixed(2)}`,
+              average_transaction_value: totalTransactions > 0 ? `$${(totalRevenue / totalTransactions).toFixed(2)}` : '$0.00'
+            };
+
+            // Growth analysis
+            const firstHalf = dailyRevenue.slice(0, 15);
+            const secondHalf = dailyRevenue.slice(15, 30);
+            
+            const firstHalfRevenue = firstHalf.reduce((sum, day) => sum + day.revenue, 0);
+            const secondHalfRevenue = secondHalf.reduce((sum, day) => sum + day.revenue, 0);
+            
+            const growthRate = firstHalfRevenue > 0 ? 
+              (((secondHalfRevenue - firstHalfRevenue) / firstHalfRevenue) * 100).toFixed(1) : 'N/A';
+
+            trends.growth_analysis = {
+              first_half_revenue: `$${firstHalfRevenue.toFixed(2)}`,
+              second_half_revenue: `$${secondHalfRevenue.toFixed(2)}`,
+              growth_rate: `${growthRate}%`,
+              trend: parseFloat(growthRate) > 0 ? 'Growing' : parseFloat(growthRate) < 0 ? 'Declining' : 'Stable'
+            };
+
+          } catch (error: any) {
+            trends.summary.error = `Payment data unavailable: ${error.message}`;
+          }
+
+          // Subscription metrics
+          try {
+            const activeSubscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+              filter: 'status = "active"'
+            });
+
+            const newSubscriptions30Days = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+              filter: `created >= "${thirtyDaysAgo.toISOString()}" && status = "active"`
+            });
+
+            const canceledSubscriptions30Days = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+              filter: `updated >= "${thirtyDaysAgo.toISOString()}" && status = "canceled"`
+            });
+
+            trends.subscription_metrics = {
+              total_active_subscriptions: activeSubscriptions.totalItems,
+              new_subscriptions_30_days: newSubscriptions30Days.totalItems,
+              canceled_subscriptions_30_days: canceledSubscriptions30Days.totalItems,
+              net_subscription_growth: newSubscriptions30Days.totalItems - canceledSubscriptions30Days.totalItems,
+              churn_rate: activeSubscriptions.totalItems > 0 ?
+                `${((canceledSubscriptions30Days.totalItems / activeSubscriptions.totalItems) * 100).toFixed(1)}%` : '0%'
+            };
+
+            // MRR calculation
+            try {
+              const allActiveSubscriptions = await this.pb.collection('stripe_subscriptions').getFullList({
+                filter: 'status = "active"'
+              });
+              
+              let mrr = 0;
+              allActiveSubscriptions.forEach((sub: any) => {
+                if (sub.amount && sub.interval === 'month') {
+                  mrr += sub.amount / 100;
+                } else if (sub.amount && sub.interval === 'year') {
+                  mrr += (sub.amount / 100) / 12;
+                }
+              });
+
+              trends.subscription_metrics.monthly_recurring_revenue = `$${mrr.toFixed(2)}`;
+              trends.subscription_metrics.annual_run_rate = `$${(mrr * 12).toFixed(2)}`;
+            } catch {
+              trends.subscription_metrics.monthly_recurring_revenue = 'Calculation unavailable';
+            }
+
+          } catch (error: any) {
+            trends.subscription_metrics.info = 'Subscription metrics require stripe_subscriptions collection';
+          }
+
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify(trends, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          throw new Error(`Failed to generate revenue trends: ${error.message}`);
+        }
+      }
+    );
+
+    // === CONFIGURATION RESOURCES ===
+
+    // Email templates configuration
+    this.server.resource(
+      "email-templates",
+      "config://email-templates",
+      async (uri) => {
+        try {
+          const config: any = {
+            timestamp: new Date().toISOString(),
+            status: 'loading',
+            templates: [],
+            required_templates: [
+              'welcome',
+              'payment_success',
+              'payment_failed',
+              'subscription_created',
+              'subscription_canceled',
+              'subscription_renewed',
+              'password_reset',
+              'email_verification'
+            ],
+            missing_templates: [],
+            template_validation: {}
+          };
+
+          try {
+            // Get all email templates
+            const templates = await this.pb.collection('email_templates').getFullList();
+            
+            config.templates = templates.map((template: any) => ({
+              id: template.id,
+              name: template.name,
+              subject: template.subject,
+              has_html_content: !!template.html_content,
+              has_text_content: !!template.text_content,
+              variables: template.variables || [],
+              created: template.created,
+              updated: template.updated,
+              is_active: template.is_active !== false
+            }));
+
+            // Check for missing required templates
+            const existingNames = templates.map((t: any) => t.name);
+            config.missing_templates = config.required_templates.filter(
+              (required: string) => !existingNames.includes(required)
+            );
+
+            // Validate template content
+            config.template_validation = {};
+            templates.forEach((template: any) => {
+              const validation: any = {
+                has_subject: !!template.subject,
+                has_content: !!(template.html_content || template.text_content),
+                has_both_formats: !!(template.html_content && template.text_content),
+                variable_usage: []
+              };
+
+              // Check for common variables in content
+              if (template.html_content || template.text_content) {
+                const content = (template.html_content || '') + (template.text_content || '');
+                const commonVars = ['{{name}}', '{{email}}', '{{appName}}', '{{userId}}'];
+                
+                commonVars.forEach(varName => {
+                  if (content.includes(varName)) {
+                    validation.variable_usage.push(varName);
+                  }
+                });
+              }
+
+              validation.is_valid = validation.has_subject && validation.has_content;
+              config.template_validation[template.name] = validation;
+            });
+
+            config.status = 'loaded';
+            config.summary = {
+              total_templates: templates.length,
+              missing_required: config.missing_templates.length,
+              invalid_templates: Object.values(config.template_validation).filter((v: any) => !v.is_valid).length,
+              completion_rate: config.required_templates.length > 0 ?
+                `${(((config.required_templates.length - config.missing_templates.length) / config.required_templates.length) * 100).toFixed(1)}%` : '0%'
+            };
+
+          } catch (error: any) {
+            config.status = 'error';
+            config.error = `Cannot access email_templates collection: ${error.message}`;
+            config.suggestion = 'Run setup_complete_saas_backend tool to create email templates collection';
+          }
+
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify(config, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          throw new Error(`Failed to load email templates configuration: ${error.message}`);
+        }
+      }
+    );
+
+    // Stripe products configuration
+    this.server.resource(
+      "stripe-products",
+      "config://stripe-products",
+      async (uri) => {
+        try {
+          const config: any = {
+            timestamp: new Date().toISOString(),
+            status: 'loading',
+            stripe_service_status: 'checking',
+            products: [],
+            subscriptions_summary: {},
+            pricing_analysis: {}
+          };
+
+          // Check Stripe service availability
+          if (!this.stripeService) {
+            config.stripe_service_status = 'not_configured';
+            config.error = 'Stripe service not configured. Set STRIPE_SECRET_KEY environment variable.';
+            config.products = [];
+          } else {
+            config.stripe_service_status = 'configured';
+
+            try {
+              // Get products from local database
+              const localProducts = await this.pb.collection('stripe_products').getFullList();
+              
+              config.products = localProducts.map((product: any) => ({
+                id: product.id,
+                name: product.name,
+                description: product.description,
+                price: product.price,
+                currency: product.currency,
+                recurring: product.recurring,
+                interval: product.interval,
+                stripe_product_id: product.stripeProductId,
+                stripe_price_id: product.stripePriceId,
+                active: product.active,
+                created: product.created,
+                metadata: product.metadata
+              }));
+
+              // Analyze pricing structure
+              if (config.products.length > 0) {
+                const recurringProducts = config.products.filter((p: any) => p.recurring);
+                const oneTimeProducts = config.products.filter((p: any) => !p.recurring);
+                
+                config.pricing_analysis = {
+                  total_products: config.products.length,
+                  recurring_products: recurringProducts.length,
+                  one_time_products: oneTimeProducts.length,
+                  price_ranges: {
+                    lowest_price: Math.min(...config.products.map((p: any) => p.price)),
+                    highest_price: Math.max(...config.products.map((p: any) => p.price)),
+                    average_price: config.products.reduce((sum: number, p: any) => sum + p.price, 0) / config.products.length
+                  },
+                  intervals: {
+                    monthly: recurringProducts.filter((p: any) => p.interval === 'month').length,
+                    yearly: recurringProducts.filter((p: any) => p.interval === 'year').length,
+                    weekly: recurringProducts.filter((p: any) => p.interval === 'week').length
+                  }
+                };
+              }
+
+              // Get subscription summary
+              try {
+                const subscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1);
+                const activeSubscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+                  filter: 'status = "active"'
+                });
+
+                config.subscriptions_summary = {
+                  total_subscriptions: subscriptions.totalItems,
+                  active_subscriptions: activeSubscriptions.totalItems,
+                  conversion_rate: subscriptions.totalItems > 0 ?
+                    `${((activeSubscriptions.totalItems / subscriptions.totalItems) * 100).toFixed(1)}%` : '0%'
+                };
+              } catch {
+                config.subscriptions_summary = {
+                  info: 'Subscription data requires stripe_subscriptions collection'
+                };
+              }
+
+              config.status = 'loaded';
+
+            } catch (error: any) {
+              config.status = 'error';
+              config.error = `Cannot access stripe_products collection: ${error.message}`;
+              config.suggestion = 'Run setup_complete_saas_backend tool to create Stripe collections';
+            }
+          }
+
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify(config, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          throw new Error(`Failed to load Stripe products configuration: ${error.message}`);
+        }
+      }
+    );
+
+    // === DEVELOPMENT RESOURCES ===
+
+    // Schema documentation
+    this.server.resource(
+      "schema-docs",
+      "dev://schema-docs",
+      async (uri) => {
+        try {
+          const docs: any = {
+            generated_at: new Date().toISOString(),
+            database_info: {},
+            collections: [],
+            relationships: [],
+            indexes_summary: {},
+            best_practices: {}
+          };
+
+          try {
+            // Get all collections with detailed schema information
+            const collections = await this.pb.collections.getList(1, 100);
+            
+            docs.database_info = {
+              total_collections: collections.totalItems,
+              system_collections: collections.items.filter((c: any) => c.system).length,
+              user_collections: collections.items.filter((c: any) => !c.system).length
+            };
+
+            docs.collections = collections.items.map((collection: any) => {
+              const schema = collection.schema || collection.fields || [];
+              
+              return {
+                name: collection.name,
+                type: collection.type,
+                system: collection.system,
+                schema: {
+                  total_fields: schema.length,
+                  fields: schema.map((field: any) => ({
+                    name: field.name,
+                    type: field.type,
+                    required: field.required,
+                    options: field.options,
+                    // Additional field analysis
+                    is_relation: field.type === 'relation',
+                    is_file: field.type === 'file',
+                    has_validation: !!(field.options && Object.keys(field.options).length > 0)
+                  })),
+                  field_types: this.analyzeFieldTypes(schema),
+                  relations: schema.filter((field: any) => field.type === 'relation').map((field: any) => ({
+                    field_name: field.name,
+                    target_collection: field.options?.collectionId || 'unknown',
+                    relationship_type: field.options?.maxSelect === 1 ? 'one-to-one' : 'one-to-many'
+                  }))
+                },
+                access_rules: {
+                  listRule: collection.listRule,
+                  viewRule: collection.viewRule,
+                  createRule: collection.createRule,
+                  updateRule: collection.updateRule,
+                  deleteRule: collection.deleteRule,
+                  security_level: this.analyzeSecurityLevel(collection)
+                },
+                indexes: collection.indexes || [],
+                created: collection.created,
+                updated: collection.updated
+              };
+            });
+
+            // Analyze relationships across collections
+            docs.relationships = this.analyzeRelationships(docs.collections);
+
+            // Indexes summary
+            const totalIndexes = docs.collections.reduce((sum: number, col: any) => sum + (col.indexes?.length || 0), 0);
+            docs.indexes_summary = {
+              total_indexes: totalIndexes,
+              collections_with_indexes: docs.collections.filter((col: any) => col.indexes && col.indexes.length > 0).length,
+              index_recommendations: this.generateIndexRecommendations(docs.collections)
+            };
+
+            // Best practices analysis
+            docs.best_practices = {
+              naming_conventions: this.analyzeNamingConventions(docs.collections),
+              security_analysis: this.analyzeSecurityPractices(docs.collections),
+              performance_tips: this.generatePerformanceTips(docs.collections),
+              data_modeling_suggestions: this.generateDataModelingSuggestions(docs.collections)
+            };
+
+          } catch (error: any) {
+            docs.error = `Cannot access collections: ${error.message}`;
+          }
+
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify(docs, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          throw new Error(`Failed to generate schema documentation: ${error.message}`);
+        }
+      }
+    );
+
+    // API endpoints documentation
+    this.server.resource(
+      "api-endpoints",
+      "dev://api-endpoints",
+      async (uri) => {
+        try {
+          const endpoints: any = {
+            generated_at: new Date().toISOString(),
+            base_url: this.pb.baseUrl,
+            authentication: {
+              status: this.pb.authStore.isValid ? 'authenticated' : 'not_authenticated',
+              auth_methods: [
+                'POST /api/admins/auth-with-password (Admin authentication)',
+                'POST /api/users/auth-with-password (User authentication)',
+                'POST /api/users/refresh (Token refresh)',
+                'POST /api/users/logout (Logout)'
+              ]
+            },
+            collections: [],
+            webhook_endpoints: [],
+            utility_endpoints: []
+          };
+
+          try {
+            // Get all collections and generate endpoint documentation
+            const collections = await this.pb.collections.getList(1, 100);
+            
+            endpoints.collections = collections.items
+              .filter((c: any) => !c.system) // Focus on user collections
+              .map((collection: any) => {
+                const baseEndpoint = `/api/collections/${collection.name}/records`;
+                
+                return {
+                  collection_name: collection.name,
+                  base_endpoint: baseEndpoint,
+                  endpoints: [
+                    {
+                      method: 'GET',
+                      path: baseEndpoint,
+                      description: `List ${collection.name} records with pagination and filtering`,
+                      auth_required: !!collection.listRule,
+                      query_params: [
+                        'page (default: 1)',
+                        'perPage (default: 30, max: 500)',
+                        'sort (-created, +name, etc.)',
+                        'filter (title="example")',
+                        'expand (relation1,relation2)'
+                      ]
+                    },
+                    {
+                      method: 'GET',
+                      path: `${baseEndpoint}/{id}`,
+                      description: `Get a single ${collection.name} record by ID`,
+                      auth_required: !!collection.viewRule,
+                      query_params: ['expand (relation1,relation2)']
+                    },
+                    {
+                      method: 'POST',
+                      path: baseEndpoint,
+                      description: `Create a new ${collection.name} record`,
+                      auth_required: !!collection.createRule,
+                      body_format: 'JSON or FormData (for file uploads)'
+                    },
+                    {
+                      method: 'PATCH',
+                      path: `${baseEndpoint}/{id}`,
+                      description: `Update a ${collection.name} record`,
+                      auth_required: !!collection.updateRule,
+                      body_format: 'JSON or FormData (for file uploads)'
+                    },
+                    {
+                      method: 'DELETE',
+                      path: `${baseEndpoint}/{id}`,
+                      description: `Delete a ${collection.name} record`,
+                      auth_required: !!collection.deleteRule
+                    }
+                  ],
+                  schema: collection.schema || collection.fields || [],
+                  access_rules: {
+                    public_read: !collection.listRule && !collection.viewRule,
+                    public_write: !collection.createRule && !collection.updateRule,
+                    protected: !!(collection.listRule || collection.viewRule || collection.createRule || collection.updateRule)
+                  }
+                };
+              });
+
+            // Webhook endpoints (if webhook collections exist)
+            try {
+              await this.pb.collection('webhook_events').getList(1, 1);
+              endpoints.webhook_endpoints = [
+                {
+                  path: '/webhooks/stripe',
+                  method: 'POST',
+                  description: 'Stripe webhook endpoint for payment events',
+                  authentication: 'Stripe signature verification',
+                  events_supported: [
+                    'payment_intent.succeeded',
+                    'payment_intent.payment_failed',
+                    'customer.subscription.created',
+                    'customer.subscription.canceled',
+                    'invoice.payment_succeeded'
+                  ]
+                }
+              ];
+            } catch {
+              endpoints.webhook_endpoints = [
+                {
+                  info: 'Webhook endpoints available after running setup_complete_saas_backend'
+                }
+              ];
+            }
+
+            // Utility endpoints
+            endpoints.utility_endpoints = [
+              {
+                path: '/api/health',
+                method: 'GET',
+                description: 'Health check endpoint',
+                auth_required: false
+              },
+              {
+                path: '/api/files/{collection}/{recordId}/{filename}',
+                method: 'GET',
+                description: 'File serving endpoint',
+                auth_required: 'Depends on collection access rules'
+              }
+            ];
+
+            // Add usage examples
+            endpoints.usage_examples = {
+              authentication: {
+                admin_login: {
+                  method: 'POST',
+                  url: `${this.pb.baseUrl}/api/admins/auth-with-password`,
+                  body: {
+                    identity: 'admin@example.com',
+                    password: 'your_password'
+                  }
+                },
+                user_login: {
+                  method: 'POST',
+                  url: `${this.pb.baseUrl}/api/users/auth-with-password`,
+                  body: {
+                    identity: 'user@example.com',
+                    password: 'user_password'
+                  }
+                }
+              },
+              common_queries: {
+                filtered_list: `GET ${this.pb.baseUrl}/api/collections/posts/records?filter=published=true&sort=-created`,
+                with_relations: `GET ${this.pb.baseUrl}/api/collections/posts/records?expand=author,category`,
+                paginated: `GET ${this.pb.baseUrl}/api/collections/users/records?page=2&perPage=50`
+              }
+            };
+
+          } catch (error: any) {
+            endpoints.error = `Cannot generate endpoint documentation: ${error.message}`;
+          }
+
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify(endpoints, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          throw new Error(`Failed to generate API endpoints documentation: ${error.message}`);
+        }
+      }
+    );
+  }
+
+  // Helper methods for schema analysis
+  private analyzeFieldTypes(schema: any[]): { [key: string]: number } {
+    const types: { [key: string]: number } = {};
+    schema.forEach(field => {
+      types[field.type] = (types[field.type] || 0) + 1;
+    });
+    return types;
+  }
+
+  private analyzeSecurityLevel(collection: any): string {
+    const rules = [collection.listRule, collection.viewRule, collection.createRule, collection.updateRule, collection.deleteRule];
+    const hasRules = rules.filter(rule => rule !== null && rule !== '').length;
+    
+    if (hasRules === 0) return 'public';
+    if (hasRules < 3) return 'partially_protected';
+    return 'fully_protected';
+  }
+  private analyzeRelationships(collections: any[]): any[] {
+    const relationships: any[] = [];
+    
+    collections.forEach(collection => {
+      if (collection.schema?.relations) {
+        collection.schema.relations.forEach((relation: any) => {
+          relationships.push({
+            from_collection: collection.name,
+            to_collection: relation.target_collection,
+            field_name: relation.field_name,
+            relationship_type: relation.relationship_type,
+            is_bidirectional: this.checkBidirectional(collections, collection.name, relation.target_collection)
+          });
+        });
+      }
+    });
+    
+    return relationships;
+  }
+
+  private checkBidirectional(collections: any[], fromCollection: string, toCollection: string): boolean {
+    const targetCollection = collections.find(c => c.name === toCollection);
+    if (!targetCollection?.schema?.relations) return false;
+    
+    return targetCollection.schema.relations.some((rel: any) => rel.target_collection === fromCollection);
+  }
+  private generateIndexRecommendations(collections: any[]): string[] {
+    const recommendations: string[] = [];
+    
+    collections.forEach(collection => {
+      const hasDateFields = collection.schema?.fields?.some((f: any) => f.type === 'date');
+      const hasRelations = collection.schema?.fields?.some((f: any) => f.type === 'relation');
+      const indexCount = collection.indexes?.length || 0;
+      
+      if (hasDateFields && indexCount === 0) {
+        recommendations.push(`Consider adding date index to ${collection.name} for time-based queries`);
+      }
+      
+      if (hasRelations && indexCount === 0) {
+        recommendations.push(`Consider adding indexes to ${collection.name} relation fields for better join performance`);
+      }
+    });
+    
+    return recommendations;
+  }
+
+  private analyzeNamingConventions(collections: any[]): any {
+    const analysis = {
+      collection_naming: 'checking',
+      field_naming: 'checking',
+      issues: [] as string[],
+      suggestions: [] as string[]
+    };
+    
+    // Check collection naming conventions
+    const snakeCaseCollections = collections.filter(c => /^[a-z][a-z0-9_]*$/.test(c.name));
+    analysis.collection_naming = snakeCaseCollections.length === collections.length ? 'snake_case' : 'mixed';
+    
+    if (analysis.collection_naming === 'mixed') {
+      analysis.issues.push('Inconsistent collection naming convention detected');
+      analysis.suggestions.push('Use snake_case for all collection names (e.g., user_profiles, email_templates)');
+    }
+    
+    return analysis;
+  }
+
+  private analyzeSecurityPractices(collections: any[]): any {
+    const analysis = {
+      public_collections: 0,
+      protected_collections: 0,
+      security_score: 0,
+      recommendations: [] as string[]
+    };
+    
+    collections.forEach(collection => {
+      if (collection.access_rules?.security_level === 'public') {
+        analysis.public_collections++;
+      } else {
+        analysis.protected_collections++;
+      }
+    });
+    
+    analysis.security_score = collections.length > 0 ? 
+      Math.round((analysis.protected_collections / collections.length) * 100) : 0;
+    
+    if (analysis.security_score < 80) {
+      analysis.recommendations.push('Consider adding access rules to protect sensitive collections');
+    }
+    
+    return analysis;
+  }
+
+  private generatePerformanceTips(collections: any[]): string[] {
+    const tips = [
+      'Use indexes on frequently queried fields',
+      'Limit pagination to reasonable page sizes (max 500)',
+      'Use select fields to limit data transfer',
+      'Consider denormalization for read-heavy operations',
+      'Use expand carefully to avoid N+1 query problems'
+    ];
+    
+    return tips;
+  }
+
+  private generateDataModelingSuggestions(collections: any[]): string[] {
+    const suggestions = [
+      'Follow consistent naming conventions across all collections',
+      'Use appropriate field types (email, url, date) for validation',
+      'Add created and updated timestamps to all collections',
+      'Consider soft deletes for important business data',
+      'Use JSON fields sparingly and prefer structured relations'
+    ];
+    
+    return suggestions;
+  }
+
+  // Helper method for health score calculation
+  private calculateHealthScore(metrics: any): number {
+    let score = 100;
+    
+    // Deduct points for issues
+    if (metrics.technical_metrics?.database_status !== 'Connected') score -= 50;
+    if (!metrics.technical_metrics?.auth_status) score -= 20;
+    if (metrics.user_metrics?.error) score -= 15;
+    if (metrics.business_metrics?.info) score -= 10;
+    
+    return Math.max(0, score);
   }
 
   private setupTools() {
