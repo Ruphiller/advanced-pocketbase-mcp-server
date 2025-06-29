@@ -11,10 +11,10 @@ command = "npm run build:worker"
 name = "POCKETBASE_MCP_DO"
 class_name = "PocketBaseMCPDurableObject"
 
-# Durable Objects migrations
+# Durable Objects migrations (using new_sqlite_classes for free plan compatibility)
 [[migrations]]
 tag = "v1"
-new_classes = ["PocketBaseMCPDurableObject"]
+new_sqlite_classes = ["PocketBaseMCPDurableObject"]
 
 # Environment variables (configure these in your Cloudflare dashboard)
 [vars]
