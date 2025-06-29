@@ -6436,6 +6436,1212 @@ Describe your campaign goals, target audience, and desired email sequence.`
     );
 
     // === END MISSING POCKETBASE SDK FEATURES ===
+
+    // === POCKETBASE API COMPATIBILITY LAYER ===
+    
+    // Generic API proxy tool for direct PocketBase API calls
+    this.server.tool(
+      'api_request',
+      {
+        method: z.enum(['GET', 'POST', 'PATCH', 'DELETE']).describe('HTTP method for the API request'),
+        path: z.string().describe('API path relative to base URL (e.g., "/api/collections/users/records", "/api/collections")'),
+        body: z.record(z.any()).optional().describe('Request body data (for POST/PATCH requests)'),
+        queryParams: z.record(z.any()).optional().describe('Query parameters as key-value pairs'),
+        headers: z.record(z.string()).optional().describe('Additional headers to send with request')
+      },
+      async ({ method, path, body, queryParams, headers }) => {
+        try {
+          // Build the full URL
+          const url = new URL(path.startsWith('/') ? path.slice(1) : path, this.pb.baseUrl);
+          
+          // Add query parameters
+          if (queryParams) {
+            Object.entries(queryParams).forEach(([key, value]) => {
+              if (value !== undefined && value !== null) {
+                url.searchParams.append(key, String(value));
+              }
+            });
+          }
+
+          // Prepare request options
+          const requestOptions: any = {
+            method,
+            headers: {
+              'Content-Type': 'application/json',
+              ...headers
+            }
+          };
+
+          // Add authorization header if authenticated
+          if (this.pb.authStore.isValid && this.pb.authStore.token) {
+            requestOptions.headers.Authorization = this.pb.authStore.token;
+          }
+
+          // Add body for POST/PATCH requests
+          if (body && (method === 'POST' || method === 'PATCH')) {
+            requestOptions.body = JSON.stringify(body);
+          }
+
+          // Make the request
+          const response = await fetch(url.toString(), requestOptions);
+          const responseData = await response.json();
+
+          if (!response.ok) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  error: true,
+                  status: response.status,
+                  statusText: response.statusText,
+                  data: responseData
+                }, null, 2)
+              }],
+              isError: true
+            };
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                status: response.status,
+                data: responseData
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `API request failed: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // List/Search records with full API compatibility
+    this.server.tool(
+      'list_records_api',
+      {
+        collection: z.string().describe('Collection name to query records from'),
+        page: z.number().optional().default(1).describe('Page number for pagination (default: 1)'),
+        perPage: z.number().optional().default(30).describe('Number of records per page (max: 500, default: 30)'),
+        sort: z.string().optional().describe('Sort fields with direction (e.g., "-created", "+name", "title,-updated")'),
+        filter: z.string().optional().describe('Filter expression using PocketBase syntax (e.g., "status=\'active\' && created>=\'2024-01-01\'")'),
+        expand: z.string().optional().describe('Relations to expand (comma-separated, e.g., "author,category,tags")'),
+        fields: z.string().optional().describe('Specific fields to return (comma-separated, e.g., "id,name,email")'),
+        skipTotal: z.boolean().optional().describe('Skip total count calculation for better performance')
+      },
+      async ({ collection, page, perPage, sort, filter, expand, fields, skipTotal }) => {
+        try {
+          const options: any = {
+            page,
+            perPage
+          };
+
+          if (sort) options.sort = sort;
+          if (filter) options.filter = filter;
+          if (expand) options.expand = expand;
+          if (fields) options.fields = fields;
+          if (skipTotal) options.skipTotal = skipTotal;
+
+          const result = await this.pb.collection(collection).getList(page, perPage, options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                page: result.page,
+                perPage: result.perPage,
+                totalItems: result.totalItems,
+                totalPages: result.totalPages,
+                items: result.items
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to list records: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Get full list of records (all pages)
+    this.server.tool(
+      'get_full_list_api',
+      {
+        collection: z.string().describe('Collection name to query records from'),
+        sort: z.string().optional().describe('Sort fields with direction'),
+        filter: z.string().optional().describe('Filter expression using PocketBase syntax'),
+        expand: z.string().optional().describe('Relations to expand (comma-separated)'),
+        fields: z.string().optional().describe('Specific fields to return (comma-separated)'),
+        batch: z.number().optional().default(500).describe('Batch size for fetching records (max: 500)')
+      },
+      async ({ collection, sort, filter, expand, fields, batch }) => {
+        try {
+          const options: any = {};
+          if (sort) options.sort = sort;
+          if (filter) options.filter = filter;
+          if (expand) options.expand = expand;
+          if (fields) options.fields = fields;
+          if (batch) options.batch = batch;
+
+          const result = await this.pb.collection(collection).getFullList(options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                totalItems: result.length,
+                items: result
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to get full list: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Get first record matching criteria
+    this.server.tool(
+      'get_first_list_item_api',
+      {
+        collection: z.string().describe('Collection name to query records from'),
+        filter: z.string().optional().describe('Filter expression to find the record'),
+        sort: z.string().optional().describe('Sort fields to determine which record is "first"'),
+        expand: z.string().optional().describe('Relations to expand'),
+        fields: z.string().optional().describe('Specific fields to return')
+      },
+      async ({ collection, filter, sort, expand, fields }) => {
+        try {
+          const options: any = {};
+          if (filter) options.filter = filter;
+          if (sort) options.sort = sort;
+          if (expand) options.expand = expand;
+          if (fields) options.fields = fields;
+
+          const result = await this.pb.collection(collection).getFirstListItem(filter || '', options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to get first record: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // View specific record by ID
+    this.server.tool(
+      'get_record_api',
+      {
+        collection: z.string().describe('Collection name containing the record'),
+        id: z.string().describe('Record ID to retrieve'),
+        expand: z.string().optional().describe('Relations to expand (comma-separated)'),
+        fields: z.string().optional().describe('Specific fields to return (comma-separated)')
+      },
+      async ({ collection, id, expand, fields }) => {
+        try {
+          const options: any = {};
+          if (expand) options.expand = expand;
+          if (fields) options.fields = fields;
+
+          const result = await this.pb.collection(collection).getOne(id, options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to get record: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Update record by ID
+    this.server.tool(
+      'update_record_api',
+      {
+        collection: z.string().describe('Collection name containing the record to update'),
+        id: z.string().describe('Record ID to update'),
+        data: z.record(z.any()).describe('Updated field values as key-value pairs'),
+        expand: z.string().optional().describe('Relations to expand in the response'),
+        fields: z.string().optional().describe('Specific fields to return in response')
+      },
+      async ({ collection, id, data, expand, fields }) => {
+        try {
+          const options: any = {};
+          if (expand) options.expand = expand;
+          if (fields) options.fields = fields;
+
+          const result = await this.pb.collection(collection).update(id, data, options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to update record: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Delete record by ID
+    this.server.tool(
+      'delete_record_api',
+      {
+        collection: z.string().describe('Collection name containing the record to delete'),
+        id: z.string().describe('Record ID to delete')
+      },
+      async ({ collection, id }) => {
+        try {
+          await this.pb.collection(collection).delete(id);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                message: `Record ${id} deleted successfully from ${collection}`
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to delete record: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === AUTHENTICATION API TOOLS ===
+
+    // List available auth methods for a collection
+    this.server.tool(
+      'list_auth_methods_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")')
+      },
+      async ({ collection }) => {
+        try {
+          const result = await this.pb.collection(collection).listAuthMethods();
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to list auth methods: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Authenticate with email/password
+    this.server.tool(
+      'auth_with_password_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")'),
+        identity: z.string().describe('User identity (email, username, or any unique field)'),
+        password: z.string().describe('User password'),
+        expand: z.string().optional().describe('Relations to expand in auth record'),
+        fields: z.string().optional().describe('Specific fields to return in auth record')
+      },
+      async ({ collection, identity, password, expand, fields }) => {
+        try {
+          const options: any = {};
+          if (expand) options.expand = expand;
+          if (fields) options.fields = fields;
+
+          const result = await this.pb.collection(collection).authWithPassword(identity, password, options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                token: result.token,
+                record: result.record,
+                meta: result.meta
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Authentication failed: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Request OTP for authentication
+    this.server.tool(
+      'request_otp_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")'),
+        email: z.string().email().describe('Email address to send OTP to')
+      },
+      async ({ collection, email }) => {
+        try {
+          const result = await this.pb.collection(collection).requestOTP(email);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to request OTP: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Authenticate with OTP
+    this.server.tool(
+      'auth_with_otp_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")'),
+        otpId: z.string().describe('OTP ID received from request_otp_api'),
+        password: z.string().describe('OTP password received via email'),
+        expand: z.string().optional().describe('Relations to expand in auth record'),
+        fields: z.string().optional().describe('Specific fields to return in auth record')
+      },
+      async ({ collection, otpId, password, expand, fields }) => {
+        try {
+          const options: any = {};
+          if (expand) options.expand = expand;
+          if (fields) options.fields = fields;
+
+          const result = await this.pb.collection(collection).authWithOTP(otpId, password, options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                token: result.token,
+                record: result.record,
+                meta: result.meta
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `OTP authentication failed: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Refresh authentication
+    this.server.tool(
+      'auth_refresh_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")'),
+        expand: z.string().optional().describe('Relations to expand in auth record'),
+        fields: z.string().optional().describe('Specific fields to return in auth record')
+      },
+      async ({ collection, expand, fields }) => {
+        try {
+          const options: any = {};
+          if (expand) options.expand = expand;
+          if (fields) options.fields = fields;
+
+          const result = await this.pb.collection(collection).authRefresh(options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                token: result.token,
+                record: result.record,
+                meta: result.meta
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Auth refresh failed: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Request password reset
+    this.server.tool(
+      'request_password_reset_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")'),
+        email: z.string().email().describe('Email address to send password reset link to')
+      },
+      async ({ collection, email }) => {
+        try {
+          const result = await this.pb.collection(collection).requestPasswordReset(email);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                message: 'Password reset email sent successfully'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to request password reset: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Confirm password reset
+    this.server.tool(
+      'confirm_password_reset_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")'),
+        token: z.string().describe('Password reset token from email'),
+        password: z.string().describe('New password'),
+        passwordConfirm: z.string().describe('New password confirmation')
+      },
+      async ({ collection, token, password, passwordConfirm }) => {
+        try {
+          const result = await this.pb.collection(collection).confirmPasswordReset(token, password, passwordConfirm);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                message: 'Password reset confirmed successfully'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to confirm password reset: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Request email verification
+    this.server.tool(
+      'request_verification_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")'),
+        email: z.string().email().describe('Email address to send verification email to')
+      },
+      async ({ collection, email }) => {
+        try {
+          const result = await this.pb.collection(collection).requestVerification(email);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                message: 'Verification email sent successfully'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to request verification: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Confirm email verification
+    this.server.tool(
+      'confirm_verification_api',
+      {
+        collection: z.string().describe('Auth collection name (e.g., "users")'),
+        token: z.string().describe('Email verification token from email')
+      },
+      async ({ collection, token }) => {
+        try {
+          const result = await this.pb.collection(collection).confirmVerification(token);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                message: 'Email verification confirmed successfully'
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to confirm verification: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === COLLECTION MANAGEMENT API TOOLS ===
+
+    // List all collections
+    this.server.tool(
+      'list_collections_api',
+      {
+        page: z.number().optional().default(1).describe('Page number for pagination'),
+        perPage: z.number().optional().default(30).describe('Number of collections per page'),
+        sort: z.string().optional().describe('Sort fields with direction'),
+        filter: z.string().optional().describe('Filter expression for collections')
+      },
+      async ({ page, perPage, sort, filter }) => {
+        try {
+          const options: any = {};
+          if (sort) options.sort = sort;
+          if (filter) options.filter = filter;
+
+          const result = await this.pb.collections.getList(page, perPage, options);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                page: result.page,
+                perPage: result.perPage,
+                totalItems: result.totalItems,
+                totalPages: result.totalPages,
+                items: result.items
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to list collections: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Get collection by ID or name
+    this.server.tool(
+      'get_collection_api',
+      {
+        idOrName: z.string().describe('Collection ID or name to retrieve')
+      },
+      async ({ idOrName }) => {
+        try {
+          const result = await this.pb.collections.getOne(idOrName);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to get collection: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === UTILITY API TOOLS ===
+
+    // Health check
+    this.server.tool(
+      'health_check_api',
+      {},
+      async () => {
+        try {
+          const response = await fetch(`${this.pb.baseUrl}/api/health`);
+          const result = await response.json();
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                status: response.status,
+                healthy: response.ok,
+                data: result
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Health check failed: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // Build safe filter expressions
+    this.server.tool(
+      'build_filter_expression',
+      {
+        conditions: z.array(z.object({
+          field: z.string().describe('Field name to filter on'),
+          operator: z.enum(['=', '!=', '>', '>=', '<', '<=', '~', '!~', '?=', '?!=', '?>', '?>=', '?<', '?<=', '?~', '?!~']).describe('Comparison operator'),
+          value: z.any().describe('Value to compare against'),
+          connector: z.enum(['&&', '||']).optional().describe('Logical connector to next condition')
+        })).describe('Array of filter conditions to combine'),
+        parentheses: z.boolean().optional().default(false).describe('Wrap entire expression in parentheses')
+      },
+      async ({ conditions, parentheses }) => {
+        try {
+          const parts: string[] = [];
+          
+          conditions.forEach((condition, index) => {
+            let value = condition.value;
+            
+            // Handle string values - wrap in quotes and escape
+            if (typeof value === 'string') {
+              value = `"${value.replace(/"/g, '\\"')}"`;
+            }
+            // Handle date values - convert to ISO string
+            else if (value instanceof Date) {
+              value = `"${value.toISOString()}"`;
+            }
+            // Handle arrays for ?= and ?!= operators
+            else if (Array.isArray(value)) {
+              value = `[${value.map(v => typeof v === 'string' ? `"${v}"` : v).join(',')}]`;
+            }
+            
+            const filterPart = `${condition.field} ${condition.operator} ${value}`;
+            parts.push(filterPart);
+            
+            // Add connector if not the last condition
+            if (index < conditions.length - 1 && condition.connector) {
+              parts.push(` ${condition.connector} `);
+            }
+          });
+          
+          let expression = parts.join('');
+          if (parentheses) {
+            expression = `(${expression})`;
+          }
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                expression,
+                safe: true,
+                conditions_count: conditions.length
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to build filter expression: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === BATCH OPERATIONS API TOOLS ===
+
+    // Batch create/update/upsert records
+    this.server.tool(
+      'batch_records_api',
+      {
+        collection: z.string().describe('Collection name to perform batch operations on'),
+        requests: z.array(z.object({
+          method: z.enum(['POST', 'PATCH', 'DELETE']).describe('HTTP method for this operation'),
+          id: z.string().optional().describe('Record ID (required for PATCH/DELETE)'),
+          data: z.record(z.any()).optional().describe('Record data (required for POST/PATCH)')
+        })).describe('Array of batch operation requests'),
+        atomic: z.boolean().optional().default(true).describe('Whether operations should be atomic (all succeed or all fail)')
+      },
+      async ({ collection, requests, atomic }) => {
+        try {
+          const results = [];
+          const errors = [];
+
+          if (atomic) {
+            // For atomic operations, we need to handle them sequentially and rollback on any error
+            for (const request of requests) {
+              try {
+                let result;
+                switch (request.method) {
+                  case 'POST':
+                    if (!request.data) throw new Error('POST request requires data');
+                    result = await this.pb.collection(collection).create(request.data);
+                    break;
+                  case 'PATCH':
+                    if (!request.id || !request.data) throw new Error('PATCH request requires id and data');
+                    result = await this.pb.collection(collection).update(request.id, request.data);
+                    break;
+                  case 'DELETE':
+                    if (!request.id) throw new Error('DELETE request requires id');
+                    await this.pb.collection(collection).delete(request.id);
+                    result = { id: request.id, deleted: true };
+                    break;
+                }
+                results.push({
+                  success: true,
+                  method: request.method,
+                  id: request.id || result?.id,
+                  data: result
+                });
+              } catch (error: any) {
+                errors.push({
+                  method: request.method,
+                  id: request.id,
+                  error: error.message
+                });
+                
+                if (atomic) {
+                  // In atomic mode, stop on first error
+                  break;
+                }
+              }
+            }
+          } else {
+            // Non-atomic: continue processing all requests regardless of individual failures
+            await Promise.allSettled(requests.map(async (request) => {
+              try {
+                let result;
+                switch (request.method) {
+                  case 'POST':
+                    if (!request.data) throw new Error('POST request requires data');
+                    result = await this.pb.collection(collection).create(request.data);
+                    break;
+                  case 'PATCH':
+                    if (!request.id || !request.data) throw new Error('PATCH request requires id and data');
+                    result = await this.pb.collection(collection).update(request.id, request.data);
+                    break;
+                  case 'DELETE':
+                    if (!request.id) throw new Error('DELETE request requires id');
+                    await this.pb.collection(collection).delete(request.id);
+                    result = { id: request.id, deleted: true };
+                    break;
+                }
+                results.push({
+                  success: true,
+                  method: request.method,
+                  id: request.id || result?.id,
+                  data: result
+                });
+              } catch (error: any) {
+                errors.push({
+                  method: request.method,
+                  id: request.id,
+                  error: error.message
+                });
+              }
+            }));
+          }
+
+          const response = {
+            success: errors.length === 0,
+            atomic,
+            total_requests: requests.length,
+            successful_operations: results.length,
+            failed_operations: errors.length,
+            results,
+            errors
+          };
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(response, null, 2)
+            }],
+            isError: errors.length > 0 && atomic
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Batch operation failed: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === FILE HANDLING API TOOLS ===
+
+    // Get file URL/info
+    this.server.tool(
+      'get_file_url_api',
+      {
+        collection: z.string().describe('Collection name containing the record'),
+        recordId: z.string().describe('Record ID containing the file'),
+        filename: z.string().describe('Filename to get URL for'),
+        thumb: z.string().optional().describe('Thumbnail size (e.g., "100x100", "0x100", "100x0")')
+      },
+      async ({ collection, recordId, filename, thumb }) => {
+        try {
+          // Build file URL
+          let fileUrl = `${this.pb.baseUrl}/api/files/${collection}/${recordId}/${filename}`;
+          
+          if (thumb) {
+            fileUrl += `?thumb=${thumb}`;
+          }
+
+          // Try to get record to validate file exists
+          try {
+            const record = await this.pb.collection(collection).getOne(recordId);
+            
+            // Find the field that contains this filename
+            let fileField = null;
+            let fileData = null;
+            
+            for (const [fieldName, fieldValue] of Object.entries(record)) {
+              if (Array.isArray(fieldValue) && fieldValue.includes(filename)) {
+                fileField = fieldName;
+                fileData = fieldValue;
+                break;
+              } else if (fieldValue === filename) {
+                fileField = fieldName;
+                fileData = fieldValue;
+                break;
+              }
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  file_url: fileUrl,
+                  public_url: fileUrl,
+                  collection,
+                  record_id: recordId,
+                  filename,
+                  thumb_size: thumb || null,
+                  field_name: fileField,
+                  file_exists_in_record: !!fileField,
+                  record_file_data: fileData
+                }, null, 2)
+              }]
+            };
+          } catch (recordError: any) {
+            // Record doesn't exist or not accessible, but still return the URL
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  file_url: fileUrl,
+                  public_url: fileUrl,
+                  collection,
+                  record_id: recordId,
+                  filename,
+                  thumb_size: thumb || null,
+                  warning: `Could not verify file existence: ${recordError.message}`
+                }, null, 2)
+              }]
+            };
+          }
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to get file URL: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === REALTIME/SUBSCRIPTION API TOOLS ===
+
+    // Subscribe to realtime changes (information only, actual subscription requires client-side implementation)
+    this.server.tool(
+      'realtime_subscription_info',
+      {
+        collection: z.string().optional().describe('Collection to subscribe to (optional, can subscribe to all)'),
+        recordId: z.string().optional().describe('Specific record ID to subscribe to')
+      },
+      async ({ collection, recordId }) => {
+        try {
+          const baseUrl = this.pb.baseUrl.replace(/^http/, 'ws');
+          
+          let subscriptionTopic = '*';
+          if (collection && recordId) {
+            subscriptionTopic = `${collection}/${recordId}`;
+          } else if (collection) {
+            subscriptionTopic = collection;
+          }
+
+          const info = {
+            realtime_endpoint: `${baseUrl}/api/realtime`,
+            subscription_topic: subscriptionTopic,
+            auth_required: this.pb.authStore.isValid,
+            connection_info: {
+              protocol: 'WebSocket',
+              auth_method: 'Authorization header or query param',
+              message_format: 'JSON',
+              events: ['connect', 'disconnect', 'create', 'update', 'delete']
+            },
+            client_example: {
+              javascript: `
+// Using PocketBase JS SDK
+pb.realtime.subscribe('${subscriptionTopic}', function (e) {
+  console.log(e.action); // create, update, delete
+  console.log(e.record); // the changed record
+});
+
+// Unsubscribe
+pb.realtime.unsubscribe('${subscriptionTopic}');
+              `.trim(),
+              curl: `
+# Connect to WebSocket
+wscat -c "${baseUrl}/api/realtime${this.pb.authStore.token ? '?authorization=' + this.pb.authStore.token : ''}"
+
+# Subscribe message
+{"clientId": "CLIENT_ID", "command": "subscribe", "data": {"topic": "${subscriptionTopic}"}}
+              `.trim()
+            },
+            note: 'This tool provides connection information only. Actual realtime subscriptions must be implemented in your client application using WebSocket connections.'
+          };
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(info, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to get realtime info: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === ADVANCED QUERY BUILDING ===
+
+    // Advanced query builder with multiple filters and sorting
+    this.server.tool(
+      'advanced_query_builder',
+      {
+        collection: z.string().describe('Collection to query'),
+        filters: z.array(z.object({
+          field: z.string(),
+          operator: z.string(),
+          value: z.any(),
+          connector: z.enum(['AND', 'OR']).optional()
+        })).optional().describe('Array of filter conditions'),
+        sort_fields: z.array(z.object({
+          field: z.string(),
+          direction: z.enum(['ASC', 'DESC']).default('ASC')
+        })).optional().describe('Fields to sort by'),
+        relations: z.array(z.string()).optional().describe('Relations to expand'),
+        fields: z.array(z.string()).optional().describe('Specific fields to return'),
+        pagination: z.object({
+          page: z.number().default(1),
+          perPage: z.number().default(30)
+        }).optional().describe('Pagination settings'),
+        groupBy: z.string().optional().describe('Field to group results by (for aggregation queries)')
+      },
+      async ({ collection, filters, sort_fields, relations, fields, pagination, groupBy }) => {
+        try {
+          const options: any = {};
+
+          // Build filter expression
+          if (filters && filters.length > 0) {
+            const filterParts: string[] = [];
+            filters.forEach((filter, index) => {
+              let value = filter.value;
+              
+              // Escape string values
+              if (typeof value === 'string') {
+                value = `"${value.replace(/"/g, '\\"')}"`;
+              } else if (value instanceof Date) {
+                value = `"${value.toISOString()}"`;
+              }
+              
+              filterParts.push(`${filter.field} ${filter.operator} ${value}`);
+              
+              if (index < filters.length - 1 && filter.connector) {
+                filterParts.push(` ${filter.connector === 'AND' ? '&&' : '||'} `);
+              }
+            });
+            options.filter = filterParts.join('');
+          }
+
+          // Build sort expression
+          if (sort_fields && sort_fields.length > 0) {
+            const sortParts = sort_fields.map(sort => 
+              `${sort.direction === 'DESC' ? '-' : '+'}${sort.field}`
+            );
+            options.sort = sortParts.join(',');
+          }
+
+          // Add expand relations
+          if (relations && relations.length > 0) {
+            options.expand = relations.join(',');
+          }
+
+          // Add specific fields
+          if (fields && fields.length > 0) {
+            options.fields = fields.join(',');
+          }
+
+          // Execute query
+          const page = pagination?.page || 1;
+          const perPage = pagination?.perPage || 30;
+          
+          const result = await this.pb.collection(collection).getList(page, perPage, options);
+
+          // If groupBy is specified, group the results
+          let processedResults: any[] | { [key: string]: any[] } = result.items;
+          if (groupBy) {
+            const grouped: { [key: string]: any[] } = {};
+            result.items.forEach((item: any) => {
+              const groupValue = item[groupBy] || 'null';
+              if (!grouped[groupValue]) {
+                grouped[groupValue] = [];
+              }
+              grouped[groupValue].push(item);
+            });
+            processedResults = grouped;
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                query_info: {
+                  collection,
+                  filter_expression: options.filter || null,
+                  sort_expression: options.sort || null,
+                  expanded_relations: options.expand || null,
+                  selected_fields: options.fields || null,
+                  grouped_by: groupBy || null
+                },
+                pagination: {
+                  page: result.page,
+                  perPage: result.perPage,
+                  totalItems: result.totalItems,
+                  totalPages: result.totalPages
+                },
+                results: processedResults
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Advanced query failed: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    // === END POCKETBASE API COMPATIBILITY LAYER ===
   }
 
   // Utility methods for automation features
