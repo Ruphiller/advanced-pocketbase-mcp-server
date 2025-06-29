@@ -5,11 +5,11 @@ FROM node:20-alpine AS builder
 # Set the working directory in the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json to the working directory
-COPY package*.json tsconfig.json ./
+# Copy package.json and package-lock.json first for better caching
+COPY package.json package-lock.json tsconfig.json ./
 
-# Install project dependencies
-RUN --mount=type=cache,target=/root/.npm npm ci
+# Install project dependencies (explicitly list files to ensure they exist)
+RUN npm ci --verbose
 
 # Copy the rest of the application's source code
 COPY src/ ./src/
@@ -27,8 +27,8 @@ WORKDIR /app
 COPY --from=builder /app/build ./build
 COPY package*.json ./
 
-# Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install only production dependencies with fallback
+RUN npm ci --only=production --verbose && npm cache clean --force
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \

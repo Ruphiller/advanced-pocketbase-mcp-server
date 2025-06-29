@@ -1,0 +1,17 @@
+# Docker ignore file to ensure package-lock.json is included
+node_modules
+npm-debug.log
+.npm
+.git
+.gitignore
+README.md
+.env
+.env.local
+.env.production.local
+.env.test.local
+Dockerfile*
+.dockerignore
+# Ensure package-lock.json is NOT ignored (it's needed for npm ci)
+!package-lock.json
+!package.json
+!tsconfig.json
