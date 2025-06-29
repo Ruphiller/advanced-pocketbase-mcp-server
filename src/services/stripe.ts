@@ -59,7 +59,7 @@ export class StripeService {
         metadata: data.metadata || {},
       });
 
-      return productRecord as StripeProduct;
+      return productRecord as unknown as StripeProduct;
     } catch (error: any) {
       throw new Error(`Failed to create product: ${error.message}`);
     }
@@ -100,7 +100,7 @@ export class StripeService {
         metadata: data.metadata || {},
       });
 
-      return customerRecord as StripeCustomer;
+      return customerRecord as unknown as StripeCustomer;
     } catch (error: any) {
       throw new Error(`Failed to create customer: ${error.message}`);
     }

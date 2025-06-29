@@ -161,7 +161,7 @@ export class SendGridService {
         custom_args: data.options?.customArgs || {}
       });
 
-      return emailLog as EmailLog;
+      return emailLog as unknown as EmailLog;
     } catch (error: any) {
       // Log failed email
       const emailLog = await this.pb.collection('email_logs').create({
@@ -201,7 +201,7 @@ export class SendGridService {
         active: true
       });
 
-      return template as SendGridDynamicTemplate;
+      return template as unknown as SendGridDynamicTemplate;
     } catch (error: any) {
       throw new Error(`Failed to create SendGrid template: ${error.message}`);
     }

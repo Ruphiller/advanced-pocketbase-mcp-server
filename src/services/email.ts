@@ -1,5 +1,5 @@
-import nodemailer from 'nodemailer';
-import Handlebars from 'handlebars';
+import * as nodemailer from 'nodemailer';
+import * as Handlebars from 'handlebars';
 import PocketBase from 'pocketbase';
 import { EmailTemplate, EmailLog } from '../types/stripe.js';
 import { SendGridService, SendGridEnhancedOptions } from './sendgrid.js';
@@ -72,7 +72,7 @@ export class EmailService {
         variables: data.variables || [],
       });
 
-      return template as EmailTemplate;
+      return template as unknown as EmailTemplate;
     } catch (error: any) {
       throw new Error(`Failed to create email template: ${error.message}`);
     }
@@ -84,7 +84,7 @@ export class EmailService {
       const template = await this.pb.collection('email_templates')
         .getFirstListItem(`name="${name}"`);
       
-      return template as EmailTemplate;
+      return template as unknown as EmailTemplate;
     } catch (error: any) {
       throw new Error(`Template not found: ${name}`);
     }
@@ -109,7 +109,7 @@ export class EmailService {
         variables: data.variables !== undefined ? data.variables : existingTemplate.variables,
       });
 
-      return updatedTemplate as EmailTemplate;
+      return updatedTemplate as unknown as EmailTemplate;
     } catch (error: any) {
       throw new Error(`Failed to update email template: ${error.message}`);
     }
@@ -155,7 +155,7 @@ export class EmailService {
         variables: variables,
       });
 
-      return emailLog as EmailLog;
+      return emailLog as unknown as EmailLog;
     } catch (error: any) {
       // Log failed email
       const emailLog = await this.pb.collection('email_logs').create({
@@ -196,7 +196,7 @@ export class EmailService {
         status: 'sent',
       });
 
-      return emailLog as EmailLog;
+      return emailLog as unknown as EmailLog;
     } catch (error: any) {
       // Log failed email
       const emailLog = await this.pb.collection('email_logs').create({
