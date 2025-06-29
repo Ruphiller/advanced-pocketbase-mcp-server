@@ -2,6 +2,8 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+// Note: HTTPServerTransport may not be available in current MCP SDK version
+// import { HTTPServerTransport } from "@modelcontextprotocol/sdk/server/http.js";
 import PocketBase from 'pocketbase';
 import { z } from 'zod';
 import { EventSource } from 'eventsource'; // Import the polyfill using named import
@@ -15,6 +17,32 @@ dotenv.config();
 // Assign the polyfill to the global scope for PocketBase SDK to find
 // @ts-ignore - Need to assign to global scope
 global.EventSource = EventSource;
+
+// Smithery configToEnv mapping
+// This maps user-provided configuration parameters to environment variables
+// for proper deployment in Smithery environments
+const configToEnv = {
+  pocketbaseUrl: 'POCKETBASE_URL',
+  adminEmail: 'POCKETBASE_ADMIN_EMAIL', 
+  adminPassword: 'POCKETBASE_ADMIN_PASSWORD',
+  stripeSecretKey: 'STRIPE_SECRET_KEY',
+  emailService: 'EMAIL_SERVICE',
+  smtpHost: 'SMTP_HOST',
+  smtpPort: 'SMTP_PORT',
+  smtpUser: 'SMTP_USER',
+  smtpPassword: 'SMTP_PASSWORD',
+  sendgridApiKey: 'SENDGRID_API_KEY',
+  defaultFromEmail: 'DEFAULT_FROM_EMAIL'
+};
+
+// Apply configuration to environment variables if provided
+function applyConfigToEnv(config: Record<string, any>): void {
+  Object.entries(configToEnv).forEach(([configKey, envVar]) => {
+    if (config[configKey] !== undefined && config[configKey] !== null) {
+      process.env[envVar] = String(config[configKey]);
+    }
+  });
+}
 
 // Define types for PocketBase
 interface CollectionModel {
@@ -77,13 +105,46 @@ interface SubscriptionEvent {
 	record: RecordModel;
 }
 
+// Initialization state interface
+interface InitializationState {
+  configLoaded: boolean;
+  pocketbaseInitialized: boolean;
+  servicesInitialized: boolean;
+  hasValidConfig: boolean;
+  isAuthenticated: boolean;
+  initializationError?: string;
+}
+
+// Configuration interface
+interface ServerConfiguration {
+  pocketbaseUrl?: string;
+  adminEmail?: string;
+  adminPassword?: string;
+  stripeSecretKey?: string;
+  emailService?: string;
+  smtpHost?: string;
+  // Add other config properties as needed
+}
+
 class PocketBaseServer {
   private server: McpServer;
-  private pb: PocketBase;
+  private pb?: PocketBase; // Make optional for deferred initialization
   private _customHeaders: Record<string, string> = {};
   private _realtimeSubscriptions: Map<string, () => void> = new Map();
   private stripeService?: StripeService;
   private emailService?: EmailService;
+  
+  // Initialization state management
+  private initializationState: InitializationState = {
+    configLoaded: false,
+    pocketbaseInitialized: false,
+    servicesInitialized: false,
+    hasValidConfig: false,
+    isAuthenticated: false
+  };
+  
+  // Configuration cache
+  private configuration?: ServerConfiguration;
 
   constructor() {
     this.server = new McpServer({
@@ -95,32 +156,9 @@ class PocketBaseServer {
         tools: {},
         prompts: {}
       }
-    });    // Initialize PocketBase client
-    const url = process.env.POCKETBASE_URL;
-    if (!url) {
-      throw new Error('POCKETBASE_URL environment variable is required');
-    }
-    this.pb = new PocketBase(url);
+    });
 
-    // Initialize services if environment variables are present
-    if (process.env.STRIPE_SECRET_KEY) {
-      try {
-        this.stripeService = new StripeService(this.pb);
-        console.log('Stripe service initialized');
-      } catch (error) {
-        console.warn('Stripe service initialization failed:', error);
-      }
-    }
-
-    if (process.env.EMAIL_SERVICE || process.env.SMTP_HOST) {
-      try {
-        this.emailService = new EmailService(this.pb);
-        console.log('Email service initialized');
-      } catch (error) {
-        console.warn('Email service initialization failed:', error);
-      }
-    }
-
+    // Setup MCP server components without initializing PocketBase
     this.setupTools();
     this.setupResources();
     this.setupPrompts();
@@ -130,6 +168,522 @@ class PocketBaseServer {
       process.exit(0);
     });
   }
+
+  /**
+   * Load configuration from environment variables or provided config
+   * This is fast and synchronous for discovery purposes
+   */
+  private loadConfiguration(config?: ServerConfiguration): ServerConfiguration {
+    if (this.initializationState.configLoaded && this.configuration) {
+      return this.configuration;
+    }
+
+    try {
+      // Apply config to environment variables if provided (Smithery pattern)
+      if (config) {
+        try {
+          applyConfigToEnv(config as Record<string, any>);
+        } catch (error: any) {
+          console.warn('Failed to apply config to environment variables:', error.message);
+        }
+      }
+
+      // Load configuration with validation
+      const pocketbaseUrl = config?.pocketbaseUrl || process.env.POCKETBASE_URL;
+      const adminEmail = config?.adminEmail || process.env.POCKETBASE_ADMIN_EMAIL;
+      const adminPassword = config?.adminPassword || process.env.POCKETBASE_ADMIN_PASSWORD;
+      const stripeSecretKey = config?.stripeSecretKey || process.env.STRIPE_SECRET_KEY;
+      const emailService = config?.emailService || process.env.EMAIL_SERVICE;
+      const smtpHost = config?.smtpHost || process.env.SMTP_HOST;
+
+      // Basic validation for critical configuration
+      const configErrors: string[] = [];
+      
+      if (!pocketbaseUrl) {
+        configErrors.push('POCKETBASE_URL is required. Set it as an environment variable or provide it in the configuration.');
+      } else {
+        // Basic URL validation
+        try {
+          new URL(pocketbaseUrl);
+        } catch {
+          configErrors.push(`POCKETBASE_URL "${pocketbaseUrl}" is not a valid URL. Example: http://localhost:8090 or https://your-pb-server.com`);
+        }
+      }
+
+      // Validate admin credentials if provided
+      if ((adminEmail && !adminPassword) || (!adminEmail && adminPassword)) {
+        configErrors.push('Both POCKETBASE_ADMIN_EMAIL and POCKETBASE_ADMIN_PASSWORD must be provided together for admin authentication.');
+      }
+
+      if (adminEmail && adminEmail.indexOf('@') === -1) {
+        configErrors.push(`POCKETBASE_ADMIN_EMAIL "${adminEmail}" is not a valid email address.`);
+      }
+
+      // Validate Stripe configuration if partially provided
+      if (stripeSecretKey && !stripeSecretKey.startsWith('sk_')) {
+        configErrors.push('STRIPE_SECRET_KEY appears to be invalid. It should start with "sk_test_" or "sk_live_".');
+      }
+
+      this.configuration = {
+        pocketbaseUrl,
+        adminEmail,
+        adminPassword,
+        stripeSecretKey,
+        emailService,
+        smtpHost,
+      };
+
+      this.initializationState.configLoaded = true;
+      
+      // Determine if configuration is valid for initialization
+      const hasMinimumConfig = Boolean(pocketbaseUrl) && configErrors.length === 0;
+      this.initializationState.hasValidConfig = hasMinimumConfig;
+      
+      // Log configuration status
+      if (configErrors.length > 0) {
+        console.warn('Configuration warnings/errors found:', configErrors);
+        if (!hasMinimumConfig) {
+          console.warn('Minimum configuration not met. Server will have limited functionality.');
+        }
+      } else {
+        console.log('Configuration loaded successfully');
+        
+        // Log what services are configured (without sensitive data)
+        const serviceStatus = {
+          pocketbase: Boolean(pocketbaseUrl),
+          admin_auth: Boolean(adminEmail && adminPassword),
+          stripe: Boolean(stripeSecretKey),
+          email: Boolean(emailService || smtpHost)
+        };
+        console.log('Service configuration status:', serviceStatus);
+      }
+
+      return this.configuration;
+    } catch (error: any) {
+      const errorMessage = `Configuration loading failed: ${error.message}`;
+      console.error(errorMessage);
+      
+      // Set error state but don't throw - allow graceful degradation
+      this.initializationState.configLoaded = true;
+      this.initializationState.hasValidConfig = false;
+      this.initializationState.initializationError = errorMessage;
+      
+      // Return minimal configuration to prevent crashes
+      this.configuration = {
+        pocketbaseUrl: '',
+        adminEmail: '',
+        adminPassword: '',
+        stripeSecretKey: '',
+        emailService: '',
+        smtpHost: '',
+      };
+      
+      return this.configuration;
+    }
+  }
+
+  /**
+   * Fast synchronous check for valid configuration
+   * Used during discovery phase
+   */
+  private hasValidConfig(): boolean {
+    if (!this.initializationState.configLoaded) {
+      try {
+        this.loadConfiguration();
+      } catch (error) {
+        // Don't throw errors during discovery phase
+        console.warn('Configuration check failed during discovery:', error);
+        return false;
+      }
+    }
+    return this.initializationState.hasValidConfig;
+  }
+
+  /**
+   * Initialize PocketBase client and services
+   * This is called lazily when tools/resources are first accessed
+   */
+  private async initializePocketBase(config?: ServerConfiguration): Promise<void> {
+    if (this.initializationState.pocketbaseInitialized && this.pb) {
+      return;
+    }
+
+    try {
+      // Load configuration if not already loaded
+      const serverConfig = this.loadConfiguration(config);
+      
+      if (!serverConfig.pocketbaseUrl) {
+        const error = new Error('POCKETBASE_URL is required for initialization. Please set the POCKETBASE_URL environment variable or provide it in the configuration.');
+        this.initializationState.initializationError = error.message;
+        throw error;
+      }
+
+      // Validate URL format
+      try {
+        new URL(serverConfig.pocketbaseUrl);
+      } catch (urlError) {
+        const error = new Error(`Invalid POCKETBASE_URL format: ${serverConfig.pocketbaseUrl}. Please provide a valid URL (e.g., http://localhost:8090 or https://your-pb-server.com)`);
+        this.initializationState.initializationError = error.message;
+        throw error;
+      }
+
+      // Initialize PocketBase client
+      this.pb = new PocketBase(serverConfig.pocketbaseUrl);
+      this.initializationState.pocketbaseInitialized = true;
+
+      // Test connection to PocketBase (optional health check)
+      try {
+        // Try a simple health check without authentication
+        const response = await fetch(`${serverConfig.pocketbaseUrl}/api/health`);
+        if (!response.ok) {
+          console.warn(`PocketBase health check failed (${response.status}). Server may be unreachable but continuing initialization.`);
+        }
+      } catch (healthError) {
+        console.warn('PocketBase health check failed. Server may be unreachable but continuing initialization:', healthError);
+      }
+
+      // Initialize services if configured
+      await this.initializeServices(serverConfig);
+
+      console.log('PocketBase client and services initialized successfully');
+    } catch (error: any) {
+      this.initializationState.initializationError = error.message;
+      this.initializationState.pocketbaseInitialized = false;
+      
+      // Provide specific error categorization
+      if (error.message.includes('POCKETBASE_URL')) {
+        throw new Error(`Configuration Error: ${error.message}`);
+      } else if (error.message.includes('fetch') || error.message.includes('network')) {
+        throw new Error(`Network Error: Cannot connect to PocketBase server at ${config?.pocketbaseUrl || 'unknown URL'}. Please check that the server is running and accessible. Original error: ${error.message}`);
+      } else {
+        throw new Error(`Initialization Error: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Initialize additional services (Stripe, Email)
+   */
+  private async initializeServices(config: ServerConfiguration): Promise<void> {
+    if (this.initializationState.servicesInitialized) {
+      return;
+    }
+
+    if (!this.pb) {
+      throw new Error('PocketBase client must be initialized before services');
+    }
+
+    const serviceErrors: string[] = [];
+
+    try {
+      // Initialize Stripe service if configured
+      if (config.stripeSecretKey) {
+        try {
+          this.stripeService = new StripeService(this.pb!);
+          console.log('Stripe service initialized successfully');
+        } catch (error: any) {
+          const errorMsg = `Stripe service initialization failed: ${error.message}. Check STRIPE_SECRET_KEY and ensure Stripe collections exist.`;
+          serviceErrors.push(errorMsg);
+          console.warn(errorMsg);
+        }
+      } else {
+        console.log('Stripe service not configured (STRIPE_SECRET_KEY not provided)');
+      }
+
+      // Initialize Email service if configured
+      if (config.emailService || config.smtpHost) {
+        try {
+          this.emailService = new EmailService(this.pb!);
+          console.log('Email service initialized successfully');
+        } catch (error: any) {
+          const errorMsg = `Email service initialization failed: ${error.message}. Check email configuration and ensure email_logs collection exists.`;
+          serviceErrors.push(errorMsg);
+          console.warn(errorMsg);
+        }
+      } else {
+        console.log('Email service not configured (no email settings provided)');
+      }
+
+      this.initializationState.servicesInitialized = true;
+
+      // Log service initialization summary
+      if (serviceErrors.length > 0) {
+        console.warn(`Service initialization completed with ${serviceErrors.length} warning(s). Core functionality will work, but some features may be limited.`);
+      }
+
+    } catch (error: any) {
+      const fullError = serviceErrors.length > 0 
+        ? `Service initialization failed: ${error.message}. Additional warnings: ${serviceErrors.join('; ')}`
+        : `Service initialization failed: ${error.message}`;
+      throw new Error(fullError);
+    }
+  }
+
+  /**
+   * Authenticate with PocketBase (runtime authentication)
+   * This is separate from configuration checking
+   */
+  private async authenticatePocketBase(email?: string, password?: string, isAdmin: boolean = false): Promise<void> {
+    if (!this.pb) {
+      await this.initializePocketBase();
+    }
+
+    if (this.initializationState.isAuthenticated && this.pb!.authStore.isValid) {
+      return; // Already authenticated
+    }
+
+    try {
+      const config = this.loadConfiguration();
+      
+      // Use provided credentials or fall back to config/environment
+      const authEmail = email || (isAdmin ? config.adminEmail : undefined);
+      const authPassword = password || (isAdmin ? config.adminPassword : undefined);
+
+      if (!authEmail || !authPassword) {
+        // Don't throw error for missing auth - some operations may not require it
+        const authType = isAdmin ? 'admin' : 'user';
+        console.warn(`Authentication credentials not provided for ${authType} - operating without authentication. Some operations may be limited.`);
+        return;
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(authEmail)) {
+        throw new Error(`Invalid email format: ${authEmail}. Please provide a valid email address.`);
+      }
+
+      if (isAdmin) {
+        try {
+          // For PocketBase admins
+          await (this.pb! as any).admins.authWithPassword(authEmail, authPassword);
+        } catch (error: any) {
+          if (error.status === 400) {
+            throw new Error(`Admin authentication failed: Invalid credentials. Please check ADMIN_EMAIL and ADMIN_PASSWORD.`);
+          } else if (error.status === 401 || error.status === 403) {
+            throw new Error(`Admin authentication failed: Access denied. The provided credentials may be incorrect or the admin account may not exist.`);
+          } else if (error.status >= 500) {
+            throw new Error(`Admin authentication failed: Server error (${error.status}). The PocketBase server may be experiencing issues.`);
+          } else {
+            throw new Error(`Admin authentication failed: ${error.message || 'Unknown error'}. Please verify your admin credentials.`);
+          }
+        }
+      } else {
+        try {
+          await this.pb!.collection('users').authWithPassword(authEmail, authPassword);
+        } catch (error: any) {
+          if (error.status === 400) {
+            throw new Error(`User authentication failed: Invalid credentials or user collection doesn't exist.`);
+          } else if (error.status === 401 || error.status === 403) {
+            throw new Error(`User authentication failed: Access denied. The provided credentials may be incorrect.`);
+          } else if (error.status === 404) {
+            throw new Error(`User authentication failed: Users collection not found. Ensure the 'users' collection exists in PocketBase.`);
+          } else {
+            throw new Error(`User authentication failed: ${error.message || 'Unknown error'}`);
+          }
+        }
+      }
+
+      this.initializationState.isAuthenticated = true;
+      console.log(`Successfully authenticated as ${isAdmin ? 'admin' : 'user'}: ${authEmail}`);
+    } catch (error: any) {
+      this.initializationState.isAuthenticated = false;
+      throw error; // Re-throw the detailed error from above
+    }
+  }
+
+  /**
+   * Ensure PocketBase is initialized and optionally authenticated
+   * This is the main function called by tools and resources
+   */
+  private async ensureInitialized(options?: {
+    requireAuth?: boolean;
+    isAdmin?: boolean;
+    email?: string;
+    password?: string;
+    config?: ServerConfiguration;
+  }): Promise<void> {
+    try {
+      // Initialize PocketBase if not already done
+      if (!this.initializationState.pocketbaseInitialized) {
+        await this.initializePocketBase(options?.config);
+      }
+
+      // Authenticate if required
+      if (options?.requireAuth && !this.initializationState.isAuthenticated) {
+        await this.authenticatePocketBase(options.email, options.password, options.isAdmin);
+      }
+    } catch (error: any) {
+      // Add context to the error for better debugging
+      const contextInfo = {
+        pocketbaseInitialized: this.initializationState.pocketbaseInitialized,
+        servicesInitialized: this.initializationState.servicesInitialized,
+        isAuthenticated: this.initializationState.isAuthenticated,
+        hasValidConfig: this.initializationState.hasValidConfig,
+        requireAuth: options?.requireAuth || false,
+        isAdmin: options?.isAdmin || false
+      };
+
+      // Log detailed context for debugging
+      console.error('Initialization failed with context:', contextInfo);
+      
+      // Throw a comprehensive error message
+      throw new Error(`PocketBase MCP Server initialization failed: ${error.message}. Context: ${JSON.stringify(contextInfo)}`);
+    }
+  }
+
+  /**
+   * Standardized error handling for tools and resources
+   * Provides consistent error categorization and user-friendly messages
+   */
+  private handleError(error: any, context: {
+    operation: string;
+    collection?: string;
+    recordId?: string;
+    additionalInfo?: any;
+  }): { success: false; error: string; category: string; message: string; suggestion?: string; details?: any; statusCode?: number | string; timestamp: string } {
+    const errorResponse = {
+      success: false,
+      error: context.operation + ' Failed',
+      collection: context.collection,
+      recordId: context.recordId,
+      timestamp: new Date().toISOString(),
+      ...context.additionalInfo
+    } as any;
+
+    // Handle PocketBase ClientResponseError
+    if (error.response && error.data) {
+      errorResponse.statusCode = error.status || 'unknown';
+      errorResponse.message = error.data.message || error.message;
+      errorResponse.details = error.data;
+
+      // Categorize common HTTP errors
+      switch (error.status) {
+        case 400:
+          errorResponse.category = 'Validation Error';
+          errorResponse.suggestion = 'Check that all required fields are provided and data types are correct.';
+          break;
+        case 401:
+          errorResponse.category = 'Authentication Error';
+          errorResponse.suggestion = 'Authentication is required. Please authenticate first.';
+          break;
+        case 403:
+          errorResponse.category = 'Permission Error';
+          errorResponse.suggestion = 'You do not have permission for this operation. Check access rules.';
+          break;
+        case 404:
+          if (context.collection) {
+            errorResponse.category = 'Collection Not Found';
+            errorResponse.message = `Collection '${context.collection}' does not exist`;
+            errorResponse.suggestion = 'Verify the collection name is correct.';
+          } else if (context.recordId) {
+            errorResponse.category = 'Record Not Found';
+            errorResponse.message = `Record with ID '${context.recordId}' does not exist`;
+            errorResponse.suggestion = 'Verify the record ID is correct.';
+          } else {
+            errorResponse.category = 'Not Found';
+            errorResponse.suggestion = 'The requested resource does not exist.';
+          }
+          break;
+        case 422:
+          errorResponse.category = 'Validation Error';
+          errorResponse.suggestion = 'Data validation failed. Check field requirements and constraints.';
+          break;
+        case 429:
+          errorResponse.category = 'Rate Limit Error';
+          errorResponse.suggestion = 'Too many requests. Please wait before trying again.';
+          break;
+        case 500:
+        case 502:
+        case 503:
+        case 504:
+          errorResponse.category = 'Server Error';
+          errorResponse.suggestion = 'The server is experiencing issues. Please try again later.';
+          break;
+        default:
+          errorResponse.category = 'HTTP Error';
+          errorResponse.suggestion = 'An HTTP error occurred. Check the status code and details.';
+      }
+    } else if (error.message) {
+      // Handle non-PocketBase errors
+      errorResponse.message = error.message;
+      
+      if (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('ECONNREFUSED')) {
+        errorResponse.category = 'Network Error';
+        errorResponse.suggestion = 'Cannot connect to PocketBase server. Check that the server is running and accessible.';
+      } else if (error.message.includes('Initialization') || error.message.includes('Configuration')) {
+        errorResponse.category = 'Configuration Error';
+        errorResponse.suggestion = 'Check your PocketBase configuration and ensure POCKETBASE_URL is set correctly.';
+      } else if (error.message.includes('Authentication')) {
+        errorResponse.category = 'Authentication Error';
+        errorResponse.suggestion = 'Authentication failed. Check your credentials and try again.';
+      } else if (error.message.includes('timeout')) {
+        errorResponse.category = 'Timeout Error';
+        errorResponse.suggestion = 'The operation timed out. The server may be slow or unresponsive.';
+      } else {
+        errorResponse.category = 'Unknown Error';
+        errorResponse.suggestion = 'An unexpected error occurred. Please check the error details.';
+      }
+    } else {
+      errorResponse.message = 'An unknown error occurred';
+      errorResponse.category = 'Unknown Error';
+      errorResponse.suggestion = 'No error details available. This may indicate a code issue.';
+    }
+
+    return errorResponse;
+  }
+
+  /**
+   * Create a standardized error response for MCP tools
+   */
+  private createErrorResponse(error: any, context: {
+    operation: string;
+    collection?: string;
+    recordId?: string;
+    additionalInfo?: any;
+  }) {
+    const errorDetails = this.handleError(error, context);
+    
+    return {
+      content: [{ 
+        type: 'text' as const, 
+        text: JSON.stringify(errorDetails, null, 2)
+      }],
+      isError: true
+    };
+  }
+
+  /**
+   * Create a standardized success response for MCP tools
+   */
+  private createSuccessResponse(data: any, context: {
+    operation: string;
+    collection?: string;
+    recordId?: string;
+    message?: string;
+  }) {
+    const response = {
+      success: true,
+      operation: context.operation,
+      message: context.message || `${context.operation} completed successfully`,
+      timestamp: new Date().toISOString(),
+      data: data
+    } as any;
+
+    if (context.collection) {
+      response.collection = context.collection;
+    }
+    if (context.recordId) {
+      response.recordId = context.recordId;
+    }
+
+    return {
+      content: [{ 
+        type: 'text' as const, 
+        text: JSON.stringify(response, null, 2)
+      }]
+    };
+  }
+
   private setupPrompts() {
     // === BASIC DEVELOPMENT PROMPTS ===
     
@@ -765,13 +1319,14 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "pocketbase://info",
       async (uri) => {
         try {
+          await this.ensureInitialized();
           return {
             contents: [{
               uri: uri.href,
               text: JSON.stringify({
-                url: this.pb.baseUrl, // Using baseUrl for backward compatibility, will update later
-                baseURL: this.pb.baseUrl, // Modern property name
-                isAuthenticated: this.pb.authStore?.isValid || false,
+                url: this.pb!.baseUrl, // Using baseUrl for backward compatibility, will update later
+                baseURL: this.pb!.baseUrl, // Modern property name
+                isAuthenticated: this.pb!.authStore?.isValid || false,
                 sdkVersion: '0.26.1'
               }, null, 2)
             }]
@@ -789,7 +1344,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
       async (uri, params) => {
         const name = typeof params.name === 'string' ? params.name : params.name[0];
         try {
-          const collection = await this.pb.collections.getOne(name);
+          await this.ensureInitialized();
+          const collection = await this.pb!.collections.getOne(name);
           return {
             contents: [{
               uri: uri.href,
@@ -808,7 +1364,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "pocketbase://collections",
       async (uri) => {
         try {
-          const collectionsResponse = await this.pb.collections.getList(1, 100);
+          await this.ensureInitialized();
+          const collectionsResponse = await this.pb!.collections.getList(1, 100);
           const collections = {
             page: collectionsResponse.page,
             perPage: collectionsResponse.perPage,
@@ -846,8 +1403,9 @@ Describe your campaign goals, target audience, and desired email sequence.`
         const collection = typeof params.collection === 'string' ? params.collection : params.collection[0];
         const id = typeof params.id === 'string' ? params.id : params.id[0];
         try {
+          await this.ensureInitialized();
           // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-          const record = await this.pb.collection(collection).getOne(id) as RecordModel;
+          const record = await this.pb!.collection(collection).getOne(id) as RecordModel;
           return {
             contents: [{
               uri: uri.href,
@@ -866,13 +1424,14 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "pocketbase://auth",
       async (uri) => {
         try {
+          await this.ensureInitialized();
           return {
             contents: [{
               uri: uri.href,
               text: JSON.stringify({
-                isValid: this.pb.authStore.isValid,
-                token: this.pb.authStore.token,
-                record: this.pb.authStore.record
+                isValid: this.pb!.authStore.isValid,
+                token: this.pb!.authStore.token,
+                record: this.pb!.authStore.record
               }, null, 2)
             }]
           };
@@ -892,6 +1451,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "analytics://metrics",
       async (uri) => {
         try {
+          await this.ensureInitialized();
           const metrics: any = {
             timestamp: new Date().toISOString(),
             overview: {},
@@ -902,14 +1462,14 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           // User metrics
           try {
-            const totalUsers = await this.pb.collection('users').getList(1, 1);
+            const totalUsers = await this.pb!.collection('users').getList(1, 1);
             metrics.user_metrics.total_users = totalUsers.totalItems;
 
             // Active users in last 24 hours (if user_events collection exists)
             try {
               const yesterday = new Date();
               yesterday.setDate(yesterday.getDate() - 1);
-              const activeUsers = await this.pb.collection('user_events').getList(1, 1, {
+              const activeUsers = await this.pb!.collection('user_events').getList(1, 1, {
                 filter: `created >= "${yesterday.toISOString()}"`
               });
               metrics.user_metrics.active_users_24h = activeUsers.totalItems;
@@ -920,7 +1480,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             // New registrations today
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const newUsers = await this.pb.collection('users').getList(1, 1, {
+            const newUsers = await this.pb!.collection('users').getList(1, 1, {
               filter: `created >= "${today.toISOString()}"`
             });
             metrics.user_metrics.new_registrations_today = newUsers.totalItems;
@@ -931,14 +1491,14 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           // Business metrics (if Stripe collections exist)
           try {
-            const subscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+            const subscriptions = await this.pb!.collection('stripe_subscriptions').getList(1, 1, {
               filter: 'status = "active"'
             });
             metrics.business_metrics.active_subscriptions = subscriptions.totalItems;
 
             // Monthly recurring revenue calculation
             try {
-              const activeSubscriptions = await this.pb.collection('stripe_subscriptions').getFullList({
+              const activeSubscriptions = await this.pb!.collection('stripe_subscriptions').getFullList({
                 filter: 'status = "active"'
               });
               
@@ -958,7 +1518,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             try {
               const today = new Date();
               today.setHours(0, 0, 0, 0);
-              const paymentsToday = await this.pb.collection('payment_history').getList(1, 1, {
+              const paymentsToday = await this.pb!.collection('payment_history').getList(1, 1, {
                 filter: `created >= "${today.toISOString()}" && status = "succeeded"`
               });
               metrics.business_metrics.successful_payments_today = paymentsToday.totalItems;
@@ -972,10 +1532,10 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           // Technical metrics
           try {
-            const collections = await this.pb.collections.getList(1, 100);
+            const collections = await this.pb!.collections.getList(1, 100);
             metrics.technical_metrics.total_collections = collections.totalItems;
             metrics.technical_metrics.database_status = 'Connected';
-            metrics.technical_metrics.auth_status = this.pb.authStore.isValid ? 'Authenticated' : 'Not authenticated';
+            metrics.technical_metrics.auth_status = this.pb!.authStore.isValid ? 'Authenticated' : 'Not authenticated';
             
             // Service status
             metrics.technical_metrics.services = {
@@ -1012,6 +1572,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "analytics://user-activity",
       async (uri) => {
         try {
+          await this.ensureInitialized();
           const activity: any = {
             timestamp: new Date().toISOString(),
             real_time: {},
@@ -1025,7 +1586,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           try {
             // Recent user events
-            const recentEvents = await this.pb.collection('user_events').getList(1, 50, {
+            const recentEvents = await this.pb!.collection('user_events').getList(1, 50, {
               filter: `created >= "${lastHour.toISOString()}"`,
               sort: '-created'
             });
@@ -1054,7 +1615,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           weekAgo.setDate(weekAgo.getDate() - 7);
 
           try {
-            const weeklyUsers = await this.pb.collection('users').getList(1, 1, {
+            const weeklyUsers = await this.pb!.collection('users').getList(1, 1, {
               filter: `created >= "${weekAgo.toISOString()}"`
             });
             activity.trends.new_users_this_week = weeklyUsers.totalItems;
@@ -1070,7 +1631,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
               nextDate.setDate(nextDate.getDate() + 1);
 
               try {
-                const dayUsers = await this.pb.collection('users').getList(1, 1, {
+                const dayUsers = await this.pb!.collection('users').getList(1, 1, {
                   filter: `created >= "${date.toISOString()}" && created < "${nextDate.toISOString()}"`
                 });
 
@@ -1094,13 +1655,13 @@ Describe your campaign goals, target audience, and desired email sequence.`
           // User segments
           try {
             // By subscription status
-            const freeUsers = await this.pb.collection('users').getList(1, 1, {
+            const freeUsers = await this.pb!.collection('users').getList(1, 1, {
               filter: 'subscription_status = "free" || subscription_status = ""'
             });
-            const premiumUsers = await this.pb.collection('users').getList(1, 1, {
+            const premiumUsers = await this.pb!.collection('users').getList(1, 1, {
               filter: 'subscription_status = "premium"'
             });
-            const trialUsers = await this.pb.collection('users').getList(1, 1, {
+            const trialUsers = await this.pb!.collection('users').getList(1, 1, {
               filter: 'subscription_status = "trial"'
             });
 
@@ -1111,10 +1672,10 @@ Describe your campaign goals, target audience, and desired email sequence.`
             };
 
             // By onboarding status
-            const completedOnboarding = await this.pb.collection('users').getList(1, 1, {
+            const completedOnboarding = await this.pb!.collection('users').getList(1, 1, {
               filter: 'onboarding_completed = true'
             });
-            const totalUsers = await this.pb.collection('users').getList(1, 1);
+            const totalUsers = await this.pb!.collection('users').getList(1, 1);
             
             activity.segments.onboarding = {
               completed: completedOnboarding.totalItems,
@@ -1147,6 +1708,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "reports://daily-summary",
       async (uri) => {
         try {
+          await this.ensureInitialized();
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           const tomorrow = new Date(today);
@@ -1164,22 +1726,22 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           // User metrics for today
           try {
-            const newUsers = await this.pb.collection('users').getList(1, 1, {
+            const newUsers = await this.pb!.collection('users').getList(1, 1, {
               filter: `created >= "${today.toISOString()}" && created < "${tomorrow.toISOString()}"`
             });
             summary.user_metrics.new_registrations = newUsers.totalItems;
 
-            const totalUsers = await this.pb.collection('users').getList(1, 1);
+            const totalUsers = await this.pb!.collection('users').getList(1, 1);
             summary.user_metrics.total_users = totalUsers.totalItems;
 
             // User activity today
             try {
-              const userEvents = await this.pb.collection('user_events').getList(1, 1, {
+              const userEvents = await this.pb!.collection('user_events').getList(1, 1, {
                 filter: `created >= "${today.toISOString()}"`
               });
               summary.user_metrics.user_events_today = userEvents.totalItems;
 
-              const activeUsers = await this.pb.collection('user_events').getList(1, 1, {
+              const activeUsers = await this.pb!.collection('user_events').getList(1, 1, {
                 filter: `created >= "${today.toISOString()}"`,
                 fields: 'user_id',
                 // Note: This is a simplified way to count unique users
@@ -1197,25 +1759,25 @@ Describe your campaign goals, target audience, and desired email sequence.`
           // Business metrics for today
           try {
             // New subscriptions today
-            const newSubscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+            const newSubscriptions = await this.pb!.collection('stripe_subscriptions').getList(1, 1, {
               filter: `created >= "${today.toISOString()}" && status = "active"`
             });
             summary.business_metrics.new_subscriptions = newSubscriptions.totalItems;
 
             // Payments today
-            const paymentsToday = await this.pb.collection('payment_history').getList(1, 1, {
+            const paymentsToday = await this.pb!.collection('payment_history').getList(1, 1, {
               filter: `created >= "${today.toISOString()}" && status = "succeeded"`
             });
             summary.business_metrics.successful_payments = paymentsToday.totalItems;
 
-            const failedPayments = await this.pb.collection('payment_history').getList(1, 1, {
+            const failedPayments = await this.pb!.collection('payment_history').getList(1, 1, {
               filter: `created >= "${today.toISOString()}" && status = "failed"`
             });
             summary.business_metrics.failed_payments = failedPayments.totalItems;
 
             // Revenue today (simplified calculation)
             try {
-              const paymentsToday = await this.pb.collection('payment_history').getFullList({
+              const paymentsToday = await this.pb!.collection('payment_history').getFullList({
                 filter: `created >= "${today.toISOString()}" && status = "succeeded"`
               });
               
@@ -1229,7 +1791,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             }
 
             // Cancellations today
-            const cancellations = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+            const cancellations = await this.pb!.collection('stripe_subscriptions').getList(1, 1, {
               filter: `updated >= "${today.toISOString()}" && status = "canceled"`
             });
             summary.business_metrics.cancellations = cancellations.totalItems;
@@ -1241,10 +1803,10 @@ Describe your campaign goals, target audience, and desired email sequence.`
           // Technical metrics
           try {
             // Email deliverability
-            const emailsSent = await this.pb.collection('email_logs').getList(1, 1, {
+            const emailsSent = await this.pb!.collection('email_logs').getList(1, 1, {
               filter: `created >= "${today.toISOString()}" && status = "sent"`
             });
-            const emailsFailed = await this.pb.collection('email_logs').getList(1, 1, {
+            const emailsFailed = await this.pb!.collection('email_logs').getList(1, 1, {
               filter: `created >= "${today.toISOString()}" && status = "failed"`
             });
 
@@ -1281,7 +1843,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           yesterday.setDate(yesterday.getDate() - 1);
           
           try {
-            const yesterdayUsers = await this.pb.collection('users').getList(1, 1, {
+            const yesterdayUsers = await this.pb!.collection('users').getList(1, 1, {
               filter: `created >= "${yesterday.toISOString()}" && created < "${today.toISOString()}"`
             });
 
@@ -1320,6 +1882,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "reports://revenue-trends",
       async (uri) => {
         try {
+          await this.ensureInitialized();
           const trends: any = {
             generated_at: new Date().toISOString(),
             period: 'last_30_days',
@@ -1347,7 +1910,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
               nextDate.setDate(nextDate.getDate() + 1);
 
               try {
-                const dayPayments = await this.pb.collection('payment_history').getFullList({
+                const dayPayments = await this.pb!.collection('payment_history').getFullList({
                   filter: `created >= "${date.toISOString()}" && created < "${nextDate.toISOString()}" && status = "succeeded"`
                 });
 
@@ -1406,15 +1969,15 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           // Subscription metrics
           try {
-            const activeSubscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+            const activeSubscriptions = await this.pb!.collection('stripe_subscriptions').getList(1, 1, {
               filter: 'status = "active"'
             });
 
-            const newSubscriptions30Days = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+            const newSubscriptions30Days = await this.pb!.collection('stripe_subscriptions').getList(1, 1, {
               filter: `created >= "${thirtyDaysAgo.toISOString()}" && status = "active"`
             });
 
-            const canceledSubscriptions30Days = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+            const canceledSubscriptions30Days = await this.pb!.collection('stripe_subscriptions').getList(1, 1, {
               filter: `updated >= "${thirtyDaysAgo.toISOString()}" && status = "canceled"`
             });
 
@@ -1429,7 +1992,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
             // MRR calculation
             try {
-              const allActiveSubscriptions = await this.pb.collection('stripe_subscriptions').getFullList({
+              const allActiveSubscriptions = await this.pb!.collection('stripe_subscriptions').getFullList({
                 filter: 'status = "active"'
               });
               
@@ -1472,6 +2035,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "config://email-templates",
       async (uri) => {
         try {
+          await this.ensureInitialized();
+          
           const config: any = {
             timestamp: new Date().toISOString(),
             status: 'loading',
@@ -1492,7 +2057,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           try {
             // Get all email templates
-            const templates = await this.pb.collection('email_templates').getFullList();
+            const templates = await this.pb!.collection('email_templates').getFullList();
             
             config.templates = templates.map((template: any) => ({
               id: template.id,
@@ -1571,6 +2136,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "config://stripe-products",
       async (uri) => {
         try {
+          await this.ensureInitialized();
+          
           const config: any = {
             timestamp: new Date().toISOString(),
             status: 'loading',
@@ -1590,7 +2157,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
             try {
               // Get products from local database
-              const localProducts = await this.pb.collection('stripe_products').getFullList();
+              const localProducts = await this.pb!.collection('stripe_products').getFullList();
               
               config.products = localProducts.map((product: any) => ({
                 id: product.id,
@@ -1631,8 +2198,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
               // Get subscription summary
               try {
-                const subscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1);
-                const activeSubscriptions = await this.pb.collection('stripe_subscriptions').getList(1, 1, {
+                const subscriptions = await this.pb!.collection('stripe_subscriptions').getList(1, 1);
+                const activeSubscriptions = await this.pb!.collection('stripe_subscriptions').getList(1, 1, {
                   filter: 'status = "active"'
                 });
 
@@ -1677,6 +2244,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "dev://schema-docs",
       async (uri) => {
         try {
+          await this.ensureInitialized();
+          
           const docs: any = {
             generated_at: new Date().toISOString(),
             database_info: {},
@@ -1688,7 +2257,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           try {
             // Get all collections with detailed schema information
-            const collections = await this.pb.collections.getList(1, 100);
+            const collections = await this.pb!.collections.getList(1, 100);
             
             docs.database_info = {
               total_collections: collections.totalItems,
@@ -1777,11 +2346,13 @@ Describe your campaign goals, target audience, and desired email sequence.`
       "dev://api-endpoints",
       async (uri) => {
         try {
+          await this.ensureInitialized();
+          
           const endpoints: any = {
             generated_at: new Date().toISOString(),
-            base_url: this.pb.baseUrl,
+            base_url: this.pb!.baseUrl,
             authentication: {
-              status: this.pb.authStore.isValid ? 'authenticated' : 'not_authenticated',
+              status: this.pb!.authStore.isValid ? 'authenticated' : 'not_authenticated',
               auth_methods: [
                 'POST /api/admins/auth-with-password (Admin authentication)',
                 'POST /api/users/auth-with-password (User authentication)',
@@ -1796,7 +2367,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           try {
             // Get all collections and generate endpoint documentation
-            const collections = await this.pb.collections.getList(1, 100);
+            const collections = await this.pb!.collections.getList(1, 100);
             
             endpoints.collections = collections.items
               .filter((c: any) => !c.system) // Focus on user collections
@@ -1859,7 +2430,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
             // Webhook endpoints (if webhook collections exist)
             try {
-              await this.pb.collection('webhook_events').getList(1, 1);
+              await this.pb!.collection('webhook_events').getList(1, 1);
               endpoints.webhook_endpoints = [
                 {
                   path: '/webhooks/stripe',
@@ -1904,7 +2475,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
               authentication: {
                 admin_login: {
                   method: 'POST',
-                  url: `${this.pb.baseUrl}/api/admins/auth-with-password`,
+                  url: `${this.pb!.baseUrl}/api/admins/auth-with-password`,
                   body: {
                     identity: 'admin@example.com',
                     password: 'your_password'
@@ -1912,7 +2483,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
                 },
                 user_login: {
                   method: 'POST',
-                  url: `${this.pb.baseUrl}/api/users/auth-with-password`,
+                  url: `${this.pb!.baseUrl}/api/users/auth-with-password`,
                   body: {
                     identity: 'user@example.com',
                     password: 'user_password'
@@ -1920,9 +2491,9 @@ Describe your campaign goals, target audience, and desired email sequence.`
                 }
               },
               common_queries: {
-                filtered_list: `GET ${this.pb.baseUrl}/api/collections/posts/records?filter=published=true&sort=-created`,
-                with_relations: `GET ${this.pb.baseUrl}/api/collections/posts/records?expand=author,category`,
-                paginated: `GET ${this.pb.baseUrl}/api/collections/users/records?page=2&perPage=50`
+                filtered_list: `GET ${this.pb!.baseUrl}/api/collections/posts/records?filter=published=true&sort=-created`,
+                with_relations: `GET ${this.pb!.baseUrl}/api/collections/posts/records?expand=author,category`,
+                paginated: `GET ${this.pb!.baseUrl}/api/collections/users/records?page=2&perPage=50`
               }
             };
 
@@ -2132,11 +2703,12 @@ Describe your campaign goals, target audience, and desired email sequence.`
       {},
       async () => {
         try {
+          await this.ensureInitialized();
           return {              content: [{
                 type: 'text',
                 text: JSON.stringify({
-                  url: this.pb.baseUrl,
-                  isAuthenticated: this.pb.authStore?.isValid || false,
+                  url: this.pb!.baseUrl,
+                  isAuthenticated: this.pb!.authStore?.isValid || false,
                   version: '0.1.0'
                 }, null, 2)
               }]
@@ -2154,13 +2726,14 @@ Describe your campaign goals, target audience, and desired email sequence.`
       {},
       async () => {
         try {
+          await this.ensureInitialized();
           return {
             content: [{
               type: 'text',              text: JSON.stringify({
-                isValid: this.pb.authStore.isValid,
-                token: this.pb.authStore.token,
-                record: this.pb.authStore.record,
-                isAdmin: this.pb.authStore.record?.collectionName === '_superusers'
+                isValid: this.pb!.authStore.isValid,
+                token: this.pb!.authStore.token,
+                record: this.pb!.authStore.record,
+                isAdmin: this.pb!.authStore.record?.collectionName === '_superusers'
               }, null, 2)
             }]
           };        } catch (error: any) {
@@ -2178,50 +2751,24 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ includeSystem }: { includeSystem: boolean }) => {
         try {
-          // Try to get collections without authentication first
-          try {
-            const collections = await this.pb.collections.getList(1, 100);
-            const filteredCollections = includeSystem
-              ? collections.items
-              : collections.items.filter((c: any) => !c.system);
+          await this.ensureInitialized();
+          const collections = await this.pb!.collections.getList(1, 100);
+          const filteredCollections = includeSystem
+            ? collections.items
+            : collections.items.filter((c: any) => !c.system);
 
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(filteredCollections.map((c: any) => ({
-                  id: c.id,
-                  name: c.name,
-                  type: c.type,
-                  system: c.system,
-                  recordCount: c.recordCount || 0
-                })), null, 2)
-              }]
-            };
-          } catch (error: any) {
-            // If authentication is required, try to discover collections by testing common ones
-            // and by checking which ones are accessible
-            const commonCollections = ['users', 'products', 'posts', 'categories', 'orders', 'customers', 'items', 'files'];
-            const discoveredCollections = [];
-
-            for (const collectionName of commonCollections) {
-              try {
-                // Try to list records in this collection
-                const result = await this.pb.collection(collectionName).getList(1, 1);
-                discoveredCollections.push({
-                  name: collectionName,
-                  recordCount: result.totalItems
-                });
-              } catch (e) {
-                // Skip collections that don't exist or require authentication
-              }
-            }
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(discoveredCollections, null, 2)
-              }]
-            };          }
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(filteredCollections.map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                type: c.type,
+                system: c.system,
+                recordCount: c.recordCount || 0
+              })), null, 2)
+            }]
+          };
         } catch (error: any) {
           return {
             content: [{ type: 'text', text: `Failed to list collections: ${error.message}` }],
@@ -2238,36 +2785,23 @@ Describe your campaign goals, target audience, and desired email sequence.`
         collection: z.string().describe('Collection name where to create the record (e.g., "users", "posts", "products")'),
         data: z.record(z.any()).describe('Record data object with field values. Required fields must be included. Use proper data types (string, number, boolean, array, object) matching the collection schema.')
       },
-      async ({ collection, data }: { collection: string; data: Record<string, any> }) => {
+      async ({ collection, data }: { collection: string, data: Record<string, any> }) => {
         try {
-          // Create record with type safety
-          const result = await this.pb.collection(collection).create(data);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-          };
-        } catch (error: any) {
-          // Enhanced error handling with ClientResponseError patterns
-          let errorMessage = error.message;
-          let errorDetails = null;
-          let statusCode = error.status || 'unknown';
+          await this.ensureInitialized();
           
-          // Check if it's a PocketBase ClientResponseError
-          if (error.response && error.data) {
-            errorMessage = error.data.message || error.message;
-            errorDetails = error.data;
-            statusCode = error.status;
-          }
+          const result = await this.pb!.collection(collection).create(data);
           
           return {
             content: [{ 
-              type: 'text', 
-              text: JSON.stringify({
-                error: 'Failed to create record',
-                message: errorMessage,
-                statusCode: statusCode,
-                collection: collection,
-                details: errorDetails
-              }, null, 2)
+              type: 'text' as const, 
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            content: [{ 
+              type: 'text' as const, 
+              text: `Failed to create record: ${error.message}`
             }],
             isError: true
           };
@@ -2287,10 +2821,13 @@ Describe your campaign goals, target audience, and desired email sequence.`
           options: z.record(z.any()).optional()
         })).describe('Collection schema')
       },
-      async ({ name, schema }) => {
+      async (args) => {
+        const { name, schema } = args;
         console.error(`[MCP DEBUG] create_collection called with:`, { name, schema });
 
-        if (!this.pb.authStore.isValid || this.pb.authStore.record?.collectionName !== '_superusers') {
+        try {
+          await this.ensureInitialized({ requireAuth: true, isAdmin: true });
+        } catch (error: any) {
           return {
             content: [{
               type: 'text',
@@ -2352,7 +2889,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             console.error('[MCP DEBUG] Sending payload to PocketBase:', JSON.stringify(payload, null, 2));
             
             // Use the collections.create method as shown in the documentation
-            const result = await this.pb.collections.create(payload);
+            const result = await this.pb!.collections.create(payload);
             
             console.error('[MCP DEBUG] Collection created successfully:', JSON.stringify(result, null, 2));
             
@@ -2380,7 +2917,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
               
               console.error('[MCP DEBUG] Trying alternative payload:', JSON.stringify(alternativePayload, null, 2));
               
-              const result = await this.pb.collections.create(alternativePayload);
+              const result = await this.pb!.collections.create(alternativePayload);
               
               console.error('[MCP DEBUG] Collection created with alternative payload:', JSON.stringify(result, null, 2));
               
@@ -2424,6 +2961,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
         perPage: z.number().optional().describe('Number of records per page (1-500, default 50 for performance)')
       },      async ({ collection, filter, sort, page = 1, perPage = 50 }) => {
         try {
+          await this.ensureInitialized();
+          
           // Validate pagination parameters
           if (typeof page === 'number' && page < 1) page = 1;
           if (typeof perPage === 'number' && perPage > 500) perPage = 500;
@@ -2433,7 +2972,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (filter) options.filter = filter;
           if (sort) options.sort = sort;
 
-          const result = await this.pb.collection(collection).getList(page, perPage, options);
+          const result = await this.pb!.collection(collection).getList(page, perPage, options);
           return {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
           };
@@ -2471,7 +3010,9 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, id, data }) => {
         try {
-          const result = await this.pb.collection(collection).update(id, data);
+          await this.ensureInitialized();
+          
+          const result = await this.pb!.collection(collection).update(id, data);
           return {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
           };
@@ -2508,7 +3049,9 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, id }) => {
         try {
-          await this.pb.collection(collection).delete(id);
+          await this.ensureInitialized();
+          
+          await this.pb!.collection(collection).delete(id);
           return {
             content: [{ type: 'text', text: `Successfully deleted record ${id} from collection ${collection}` }]
           };
@@ -2542,7 +3085,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             };
           }
 
-          const authData = await this.pb
+          const authData = await this.pb!
             .collection(authCollection)
             .authWithPassword(authEmail, authPassword);
 
@@ -2587,7 +3130,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       async ({ provider, code, codeVerifier, redirectUrl, collection, createData = {} }) => {
         try {
           // Updated method signature for latest PocketBase SDK
-          const authData = await this.pb
+          const authData = await this.pb!
             .collection(collection)
             .authWithOAuth2Code(provider, code, codeVerifier, redirectUrl, createData);
 
@@ -2611,7 +3154,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       async ({ email, collection }) => {
         try {
           // Updated method signature for latest PocketBase SDK
-          const result = await this.pb.collection(collection).requestOTP(email);
+          const result = await this.pb!.collection(collection).requestOTP(email);
           return {
             content: [{ type: 'text', text: JSON.stringify({ success: result }, null, 2) }]
           };
@@ -2629,7 +3172,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection }) => {
         try {
-          const authData = await this.pb.collection(collection).authRefresh();
+          const authData = await this.pb!.collection(collection).authRefresh();
           return {
             content: [{ type: 'text', text: JSON.stringify(authData, null, 2) }]
           };
@@ -2649,7 +3192,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ email, collection }) => {
         try {
-          const result = await this.pb.collection(collection).requestVerification(email);
+          const result = await this.pb!.collection(collection).requestVerification(email);
           return {
             content: [{ type: 'text', text: JSON.stringify({ success: result }, null, 2) }]
           };
@@ -2668,7 +3211,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ token, collection }) => {
         try {
-          const result = await this.pb.collection(collection).confirmVerification(token);
+          const result = await this.pb!.collection(collection).confirmVerification(token);
           return {
             content: [{ type: 'text', text: JSON.stringify({ success: result }, null, 2) }]
           };
@@ -2688,7 +3231,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ email, collection }) => {
         try {
-          const result = await this.pb.collection(collection).requestPasswordReset(email);
+          const result = await this.pb!.collection(collection).requestPasswordReset(email);
           return {
             content: [{ type: 'text', text: JSON.stringify({ success: result }, null, 2) }]
           };
@@ -2709,7 +3252,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ token, password, passwordConfirm, collection }) => {
         try {
-          const result = await this.pb.collection(collection).confirmPasswordReset(token, password, passwordConfirm);
+          const result = await this.pb!.collection(collection).confirmPasswordReset(token, password, passwordConfirm);
           return {
             content: [{ type: 'text', text: JSON.stringify({ success: result }, null, 2) }]
           };
@@ -2731,7 +3274,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ newEmail, collection }) => {
         try {
-          const result = await this.pb.collection(collection).requestEmailChange(newEmail);
+          const result = await this.pb!.collection(collection).requestEmailChange(newEmail);
           return {
             content: [{ type: 'text', text: JSON.stringify({ success: result }, null, 2) }]
           };
@@ -2751,7 +3294,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ token, password, collection }) => {
         try {
-          const authData = await this.pb.collection(collection).confirmEmailChange(token, password);
+          const authData = await this.pb!.collection(collection).confirmEmailChange(token, password);
           return {
             content: [{ type: 'text', text: JSON.stringify(authData, null, 2) }]
           };
@@ -2771,7 +3314,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ userId, collection }) => {
         try {
-          const authData = await this.pb.collection(collection).impersonate(userId);
+          const authData = await this.pb!.collection(collection).impersonate(userId);
           return {
             content: [{ type: 'text', text: JSON.stringify(authData, null, 2) }]
           };
@@ -2793,7 +3336,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ email, password, passwordConfirm, name, collection }) => {
         try {
-          const result = await this.pb.collection(collection).create({
+          const result = await this.pb!.collection(collection).create({
             email,
             password,
             passwordConfirm,
@@ -2823,7 +3366,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (expand) options.expand = expand;
 
           // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-          const record = await this.pb.collection(collection).getOne(id, options);
+          const record = await this.pb!.collection(collection).getOne(id, options);
           return {
             content: [{ type: 'text', text: JSON.stringify(record, null, 2) }]
           };
@@ -2863,7 +3406,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           // Updating rules typically requires admin privileges
-          const result = await this.pb.collections.update(collection, payload);
+          const result = await this.pb!.collections.update(collection, payload);
           return {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
           };
@@ -2900,7 +3443,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           console.error(`[MCP DEBUG] update_collection_schema called with:`, { collection, addFields, removeFields, updateFields });
           
           // Fetch the current collection details including schema
-          const currentCollection = await this.pb.collections.getOne(collection);
+          const currentCollection = await this.pb!.collections.getOne(collection);
           let currentSchema = currentCollection.schema || [];
           
           console.error(`[MCP DEBUG] Current schema:`, JSON.stringify(currentSchema, null, 2));
@@ -2943,7 +3486,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           console.error(`[MCP DEBUG] Updated schema:`, JSON.stringify(currentSchema, null, 2));
 
           // Update the collection with the modified schema
-          const result = await this.pb.collections.update(collection, { schema: currentSchema });
+          const result = await this.pb!.collections.update(collection, { schema: currentSchema });
           
           console.error(`[MCP DEBUG] update_collection_schema success:`, JSON.stringify(result, null, 2));
           
@@ -2970,7 +3513,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           console.error('[MCP DEBUG] get_collection_schema called for collection:', collection);
           
           // First try to get collection directly
-          const collectionData = await this.pb.collections.getOne(collection);
+          const collectionData = await this.pb!.collections.getOne(collection);
           console.error('[MCP DEBUG] Collection data retrieved:', JSON.stringify(collectionData, null, 2));
           
           // In newer PocketBase versions, the schema is in the 'fields' property
@@ -2999,7 +3542,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           
           // If we can't get collection directly, try to infer from records
           try {
-            const records = await this.pb.collection(collection).getList(1, 1);
+            const records = await this.pb!.collection(collection).getList(1, 1);
             
             if (records.items.length > 0) {
               const record = records.items[0];
@@ -3060,11 +3603,11 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ format }) => {
         try {
-          const collections = await this.pb.collections.getList(1, 100);
+          const collections = await this.pb!.collections.getList(1, 100);
           const backup: any = {};
 
           for (const collection of collections.items) {
-            const records = await this.pb.collection(collection.name).getFullList();
+            const records = await this.pb!.collection(collection.name).getFullList();
             backup[collection.name] = {
               schema: collection.schema,
               records,
@@ -3116,23 +3659,23 @@ Describe your campaign goals, target audience, and desired email sequence.`
             let result;
             switch (mode) {
               case 'create':
-                result = await this.pb.collection(collection).create(record);
+                result = await this.pb!.collection(collection).create(record);
                 break;
               case 'update':
                 if (!record.id) {
                   throw new Error('Record ID required for update mode');
                 }
-                result = await this.pb.collection(collection).update(record.id, record);
+                result = await this.pb!.collection(collection).update(record.id, record);
                 break;
               case 'upsert':
                 if (record.id) {
                   try {
-                    result = await this.pb.collection(collection).update(record.id, record);
+                    result = await this.pb!.collection(collection).update(record.id, record);
                   } catch {
-                    result = await this.pb.collection(collection).create(record);
+                    result = await this.pb!.collection(collection).create(record);
                   }
                 } else {
-                  result = await this.pb.collection(collection).create(record);
+                  result = await this.pb!.collection(collection).create(record);
                 }
                 break;
             }
@@ -3177,12 +3720,12 @@ Describe your campaign goals, target audience, and desired email sequence.`
             required: field.required === undefined ? false : field.required
           }));
 
-          await this.pb.collections.create({
+          await this.pb!.collections.create({
             name: tempName,
             schema: processedSchema,
           });
 
-          const oldRecords = await this.pb.collection(collection).getFullList();
+          const oldRecords = await this.pb!.collection(collection).getFullList();
           const transformedRecords = oldRecords.map(record => {
             const newRecord: any = { ...record };
             if (dataTransforms) {
@@ -3198,12 +3741,12 @@ Describe your campaign goals, target audience, and desired email sequence.`
           });
 
           for (const record of transformedRecords) {
-            await this.pb.collection(tempName).create(record);
+            await this.pb!.collection(tempName).create(record);
           }
 
           // Delete original collection and rename temp
-          await this.pb.collections.delete(collection);
-          await this.pb.collections.update(tempName, { name: collection });
+          await this.pb!.collections.delete(collection);
+          await this.pb!.collections.update(tempName, { name: collection });
 
           return {
             content: [{ type: 'text', text: `Successfully migrated collection '${collection}' to new schema` }]
@@ -3229,7 +3772,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, action, index }) => {
         try {
-          const collectionObj = await this.pb.collections.getOne(collection);
+          const collectionObj = await this.pb!.collections.getOne(collection);
           const currentIndexes = collectionObj.indexes || [];
           let result;
 
@@ -3241,7 +3784,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
                   isError: true
                 };
               }
-              const updatedCollection = await this.pb.collections.update(collectionObj.id, {
+              const updatedCollection = await this.pb!.collections.update(collectionObj.id, {
                 ...collectionObj,
                 indexes: [...currentIndexes, index],
               });
@@ -3256,7 +3799,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
                 };
               }
               const filteredIndexes = currentIndexes.filter((idx: any) => idx.name !== index.name);
-              const collectionAfterDelete = await this.pb.collections.update(collectionObj.id, {
+              const collectionAfterDelete = await this.pb!.collections.update(collectionObj.id, {
                 ...collectionObj,
                 indexes: filteredIndexes,
               });
@@ -3305,9 +3848,9 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           let result;
           if (recordId) {
-            result = await this.pb.collection(collection).update(recordId, formData);
+            result = await this.pb!.collection(collection).update(recordId, formData);
           } else {
-            result = await this.pb.collection(collection).create(formData);
+            result = await this.pb!.collection(collection).create(formData);
           }
 
           return {
@@ -3332,7 +3875,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           // Use modern PocketBase filter method for safe parameter binding
           // This is equivalent to pb.filter() method in SDK v0.26.1
           // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-          const filter = this.pb.filter(expression, params);
+          const filter = this.pb!.filter(expression, params);
           return {
             content: [{ 
               type: 'text', 
@@ -3371,12 +3914,12 @@ Describe your campaign goals, target audience, and desired email sequence.`
         try {
           if (typeof autoCancellation === 'boolean') {
             // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-            this.pb.autoCancellation(autoCancellation);
+            this.pb!.autoCancellation(autoCancellation);
           }
 
           if (requestKey === null) {
             // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-            this.pb.cancelRequest(requestKey);
+            this.pb!.cancelRequest(requestKey);
           }
 
           if (headers) {
@@ -3405,24 +3948,24 @@ Describe your campaign goals, target audience, and desired email sequence.`
           switch (action) {
             case 'save':
               // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-              this.pb.authStore.save(data.token, data.record);
+              this.pb!.authStore.save(data.token, data.record);
               return {
                 content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }]
               };
             case 'clear':
               // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-              this.pb.authStore.clear();
+              this.pb!.authStore.clear();
               return {
                 content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }]
               };
             case 'export_cookie':
               // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
               return {
-                content: [{ type: 'text', text: this.pb.authStore.exportToCookie(data) }]
+                content: [{ type: 'text', text: this.pb!.authStore.exportToCookie(data) }]
               };
             case 'load_cookie':
               // @ts-ignore - PocketBase has this method but TypeScript doesn't know about it
-              this.pb.authStore.loadFromCookie(data.cookie);
+              this.pb!.authStore.loadFromCookie(data.cookie);
               return {
                 content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }]
               };
@@ -3453,7 +3996,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           // We'll log events to the server's console instead.
           // Also, managing unsubscription isn't straightforward in this model.
           // Cast to 'any' to bypass TS error if the specific type isn't correctly inferred
-          await (this.pb.collection(collection) as any).subscribe(recordId || '*', (e: SubscriptionEvent) => {
+          await (this.pb!.collection(collection) as any).subscribe(recordId || '*', (e: SubscriptionEvent) => {
             console.error(`[MCP PocketBase Subscription Event - ${collection}/${recordId || '*'}] Action: ${e.action}, Record:`, JSON.stringify(e.record, null, 2));
           }, { filter }); // Pass filter option if provided
 
@@ -3484,7 +4027,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
         try {
           for (const record of records) {
             try {
-              const result = await this.pb.collection(collection).update(record.id, record.data);
+              const result = await this.pb!.collection(collection).update(record.id, record.data);
               results.push({ id: record.id, status: 'success', result });
             } catch (error: any) {
               errors.push({ id: record.id, status: 'error', message: error.message });
@@ -3522,7 +4065,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
         try {
           for (const id of recordIds) {
             try {
-              await this.pb.collection(collection).delete(id);
+              await this.pb!.collection(collection).delete(id);
               results.push({ id, status: 'success' });
             } catch (error: any) {
               errors.push({ id, status: 'error', message: error.message });
@@ -3571,7 +4114,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
                   if (!op.data) {
                     throw new Error(`Data is required for create operation on collection ${op.collection}`);
                   }
-                  result = await this.pb.collection(op.collection).create(op.data);
+                  result = await this.pb!.collection(op.collection).create(op.data);
                   break;
                 
                 case 'update':
@@ -3581,14 +4124,14 @@ Describe your campaign goals, target audience, and desired email sequence.`
                   if (!op.data) {
                     throw new Error(`Data is required for update operation on collection ${op.collection}`);
                   }
-                  result = await this.pb.collection(op.collection).update(op.id, op.data);
+                  result = await this.pb!.collection(op.collection).update(op.id, op.data);
                   break;
                 
                 case 'delete':
                   if (!op.id) {
                     throw new Error(`ID is required for delete operation on collection ${op.collection}`);
                   }
-                  result = await this.pb.collection(op.collection).delete(op.id);
+                  result = await this.pb!.collection(op.collection).delete(op.id);
                   break;
               }
               
@@ -3771,11 +4314,11 @@ Describe your campaign goals, target audience, and desired email sequence.`
             try {
               // Check if collection exists
               try {
-                await this.pb.collections.getOne(collectionDef.name);
+                await this.pb!.collections.getOne(collectionDef.name);
                 results.push({ collection: collectionDef.name, action: 'exists' });
               } catch {
                 // Create collection if it doesn't exist
-                await this.pb.collections.create({
+                await this.pb!.collections.create({
                   name: collectionDef.name,
                   type: 'base',
                   schema: collectionDef.schema.map(field => ({
@@ -3823,7 +4366,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
           
           if (!this.stripeService) {
-            this.stripeService = new StripeService(this.pb);
+            this.stripeService = new StripeService(this.pb!);
           }
           
           const product = await this.stripeService.createProduct({
@@ -3864,7 +4407,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             }
             
             if (!this.stripeService) {
-              this.stripeService = new StripeService(this.pb);
+              this.stripeService = new StripeService(this.pb!);
             }
             
             const customer = await this.stripeService.createCustomer({
@@ -4032,7 +4575,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             const options: any = {};
             if (filter) options.filter = filter;
 
-            const products = await this.pb.collection('stripe_products').getList(page, perPage, options);
+            const products = await this.pb!.collection('stripe_products').getList(page, perPage, options);
 
             return {
               content: [{ type: 'text', text: JSON.stringify(products, null, 2) }]
@@ -4058,7 +4601,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             const options: any = {};
             if (filter) options.filter = filter;
 
-            const customers = await this.pb.collection('stripe_customers').getList(page, perPage, options);
+            const customers = await this.pb!.collection('stripe_customers').getList(page, perPage, options);
 
             return {
               content: [{ type: 'text', text: JSON.stringify(customers, null, 2) }]
@@ -4084,7 +4627,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             const options: any = {};
             if (filter) options.filter = filter;
 
-            const subscriptions = await this.pb.collection('stripe_subscriptions').getList(page, perPage, options);
+            const subscriptions = await this.pb!.collection('stripe_subscriptions').getList(page, perPage, options);
 
             return {
               content: [{ type: 'text', text: JSON.stringify(subscriptions, null, 2) }]
@@ -4411,7 +4954,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const template = await this.emailService.createTemplate({
@@ -4449,7 +4992,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const template = await this.emailService.getTemplate(name);
@@ -4484,7 +5027,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const template = await this.emailService.updateTemplate(name, {
@@ -4528,7 +5071,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           // Check if any SendGrid features are requested
@@ -4604,7 +5147,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           // Prepare enhanced email data
@@ -4661,7 +5204,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const emailLog = await this.emailService.scheduleTemplatedEmail({
@@ -4699,7 +5242,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const result = await this.emailService.testConnection();
@@ -4730,7 +5273,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const features = {
@@ -4788,7 +5331,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const sendGridService = this.emailService.getSendGridService();
@@ -4840,7 +5383,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const sendGridService = this.emailService.getSendGridService();
@@ -4910,7 +5453,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const sendGridService = this.emailService.getSendGridService();
@@ -4955,7 +5498,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const sendGridService = this.emailService.getSendGridService();
@@ -5011,7 +5554,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const sendGridService = this.emailService.getSendGridService();
@@ -5053,7 +5596,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
 
           if (!this.emailService) {
-            this.emailService = new EmailService(this.pb);
+            this.emailService = new EmailService(this.pb!);
           }
 
           const sendGridService = this.emailService.getSendGridService();
@@ -5093,10 +5636,10 @@ Describe your campaign goals, target audience, and desired email sequence.`
             });
           } else if (action === 'list') {
             // Get all contact lists
-            const lists = await this.pb.collection('sendgrid_contact_lists').getFullList();
+            const lists = await this.pb!.collection('sendgrid_contact_lists').getFullList();
             result = { lists };
           } else if (action === 'delete' && listId) {
-            await this.pb.collection('sendgrid_contact_lists').delete(listId);
+            await this.pb!.collection('sendgrid_contact_lists').delete(listId);
             result = { success: true, message: `Contact list ${listId} deleted` };
           } else if (action === 'add_contact' && listId && contactEmail) {
             result = await sendGridService.addContactToList(listId, {
@@ -5107,12 +5650,12 @@ Describe your campaign goals, target audience, and desired email sequence.`
             });
           } else if (action === 'remove_contact' && listId && contactEmail) {
             // Remove contact from list
-            const contacts = await this.pb.collection('sendgrid_contacts').getFullList({
+            const contacts = await this.pb!.collection('sendgrid_contacts').getFullList({
               filter: `list_id = "${listId}" && email = "${contactEmail}"`
             });
             
             for (const contact of contacts) {
-              await this.pb.collection('sendgrid_contacts').delete(contact.id);
+              await this.pb!.collection('sendgrid_contacts').delete(contact.id);
             }
             
             result = { success: true, message: `Contact ${contactEmail} removed from list ${listId}` };
@@ -5147,7 +5690,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           const results: any = {};
           
           // Step 1: Create PocketBase user
-          const user = await this.pb.collection('users').create({
+          const user = await this.pb!.collection('users').create({
             email,
             password,
             passwordConfirm: password,
@@ -5166,7 +5709,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
               results.stripeCustomer = customer;
               
               // Update user with Stripe customer ID
-              await this.pb.collection('users').update(user.id, {
+              await this.pb!.collection('users').update(user.id, {
                 stripe_customer_id: customer.id
               });
             } catch (error: any) {
@@ -5194,7 +5737,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           
           // Step 4: Log successful registration for analytics
           try {
-            await this.pb.collection('user_registrations').create({
+            await this.pb!.collection('user_registrations').create({
               user_id: user.id,
               registration_method: 'automation',
               stripe_customer_created: !!results.stripeCustomer,
@@ -5263,7 +5806,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           results.subscription = subscription;
             // Step 2: Store subscription in PocketBase with enhanced tracking
           try {
-            const subscriptionRecord = await this.pb.collection('stripe_subscriptions').create({
+            const subscriptionRecord = await this.pb!.collection('stripe_subscriptions').create({
               stripe_subscription_id: subscription.id,
               stripe_customer_id: customerId,
               status: subscription.status,
@@ -5317,8 +5860,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
           // Step 4: Update user record with subscription information
           if (this.pb && userEmail) {
             try {
-              const user = await this.pb.collection('users').getFirstListItem(`email = '${userEmail}'`);
-              await this.pb.collection('users').update(user.id, {
+              const user = await this.pb!.collection('users').getFirstListItem(`email = '${userEmail}'`);
+              await this.pb!.collection('users').update(user.id, {
                 subscription_status: subscription.status,
                 stripe_subscription_id: subscription.id,
                 subscription_updated_at: new Date().toISOString()
@@ -5363,7 +5906,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           
           // Step 2: Log webhook event for audit trail
           try {
-            await this.pb.collection('webhook_events').create({
+            await this.pb!.collection('webhook_events').create({
               event_id: webhookPayload.id,
               event_type: webhookPayload.type,
               processed_at: new Date().toISOString(),
@@ -5425,7 +5968,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
                 case 'invoice.payment_succeeded':
                   // Find user by customer ID for subscription renewals
                   try {
-                    const user = await this.pb.collection('users').getFirstListItem(
+                    const user = await this.pb!.collection('users').getFirstListItem(
                       `stripe_customer_id = '${eventData?.customer}'`
                     );
                     const template = customEmailTemplates['invoice.payment_succeeded'] || 'subscription_renewed';
@@ -5451,7 +5994,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
                 case 'customer.subscription.updated':
                   // Find user by customer ID and send notification
                   try {
-                    const user = await this.pb.collection('users').getFirstListItem(
+                    const user = await this.pb!.collection('users').getFirstListItem(
                       `stripe_customer_id = '${eventData?.customer}'`
                     );
                     const template = customEmailTemplates[eventType] || 'subscription_updated';
@@ -5479,7 +6022,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
                 case 'customer.subscription.deleted':
                   // Handle subscription cancellation
                   try {
-                    const user = await this.pb.collection('users').getFirstListItem(
+                    const user = await this.pb!.collection('users').getFirstListItem(
                       `stripe_customer_id = '${eventData?.customer}'`
                     );
                     const template = customEmailTemplates['customer.subscription.deleted'] || 'subscription_canceled';
@@ -5531,7 +6074,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           
           // Step 1: Verify PocketBase access
           try {
-            const collectionsSetup = await this.pb.collection('_collections').getList(1, 1);
+            const collectionsSetup = await this.pb!.collection('_collections').getList(1, 1);
             results.collectionsSetup = { success: true, message: 'Collections accessible' };
           } catch (error: any) {
             results.collectionsSetup = { success: false, error: error.message };
@@ -5663,7 +6206,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           // Create additional collections
           for (const collection of additionalCollections) {
             try {
-              const result = await this.pb.collections.create({
+              const result = await this.pb!.collections.create({
                 name: collection.name,
                 type: 'base',
                 schema: collection.schema
@@ -5739,11 +6282,11 @@ Describe your campaign goals, target audience, and desired email sequence.`
           };
             // Step 2: Update subscription record in PocketBase with enhanced tracking
           try {
-            const subscriptionRecord = await this.pb.collection('stripe_subscriptions').getFirstListItem(
+            const subscriptionRecord = await this.pb!.collection('stripe_subscriptions').getFirstListItem(
               `stripe_subscription_id = '${subscriptionId}'`
             );
             
-            await this.pb.collection('stripe_subscriptions').update(subscriptionRecord.id, {
+            await this.pb!.collection('stripe_subscriptions').update(subscriptionRecord.id, {
               status: canceledSubscription.status,
               canceled_at: new Date().toISOString(),
               cancellation_reason: reason || 'User requested',
@@ -5754,7 +6297,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             results.databaseUpdated = true;
             
             // Log cancellation for analytics
-            await this.pb.collection('subscription_history').create({
+            await this.pb!.collection('subscription_history').create({
               user_id: subscriptionRecord.user_id || '',
               stripe_subscription_id: subscriptionId,
               status: 'canceled',
@@ -5774,14 +6317,14 @@ Describe your campaign goals, target audience, and desired email sequence.`
               let userName = null;
               
               try {
-                const subscriptionRecord = await this.pb.collection('stripe_subscriptions').getFirstListItem(
+                const subscriptionRecord = await this.pb!.collection('stripe_subscriptions').getFirstListItem(
                   `stripe_subscription_id = '${subscriptionId}'`
                 );
                 userEmail = subscriptionRecord.user_email;
                 
                 // Get user name for personalization
                 if (subscriptionRecord.user_id) {
-                  const user = await this.pb.collection('users').getOne(subscriptionRecord.user_id);
+                  const user = await this.pb!.collection('users').getOne(subscriptionRecord.user_id);
                   userName = user.name || user.email;
                 }
               } catch {
@@ -5877,11 +6420,11 @@ Describe your campaign goals, target audience, and desired email sequence.`
           // Check PocketBase connection with timing
           const pbStartTime = Date.now();
           try {
-            const collections = await this.pb.collections.getList(1, 1);
+            const collections = await this.pb!.collections.getList(1, 1);
             status.pocketbase = {
               connected: true,
-              url: this.pb.baseUrl,
-              authenticated: this.pb.authStore.isValid,
+              url: this.pb!.baseUrl,
+              authenticated: this.pb!.authStore.isValid,
               response_time_ms: Date.now() - pbStartTime,
               collections_accessible: collections.totalItems || 0
             };
@@ -5965,7 +6508,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             
             for (const collection of essentialCollections) {
               try {
-                const records = await this.pb.collection(collection).getList(1, 1);
+                const records = await this.pb!.collection(collection).getList(1, 1);
                 status.collections[collection] = {
                   exists: true,
                   total_records: records.totalItems || 0,
@@ -5983,7 +6526,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
             // Check email templates specifically
             if (status.collections.email_templates?.exists) {
               try {
-                const templates = await this.pb.collection('email_templates').getFullList();
+                const templates = await this.pb!.collection('email_templates').getFullList();
                 const templateNames = templates.map(t => t.name);
                 const requiredTemplates = [
                   'welcome', 'payment_success', 'payment_failed', 'subscription_created',
@@ -6157,8 +6700,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
             content: [{ 
               type: 'text', 
               text: JSON.stringify({
-                baseUrl: this.pb.baseUrl, // Legacy property (still works)
-                baseURL: this.pb.baseUrl, // Modern property name in v0.26.1
+                baseUrl: this.pb!.baseUrl, // Legacy property (still works)
+                baseURL: this.pb!.baseUrl, // Modern property name in v0.26.1
                 note: 'Use baseURL property in latest SDK versions for consistency'
               }, null, 2)
             }]
@@ -6189,7 +6732,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
         try {
           // This is equivalent to the pb.filter() method in SDK v0.26.1
           // @ts-ignore - Modern SDK method for safe parameter binding
-          const safeFilter = this.pb.filter(expression, params);
+          const safeFilter = this.pb!.filter(expression, params);
           
           return {
             content: [{ 
@@ -6235,7 +6778,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (expand) options.expand = expand;
           
           // Enhanced method available in latest SDK
-          const record = await this.pb.collection(collection).getFirstListItem(filter, options);
+          const record = await this.pb!.collection(collection).getFirstListItem(filter, options);
           
           return {
             content: [{ 
@@ -6284,7 +6827,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           
           // Check database connectivity
           try {
-            await this.pb.collections.getList(1, 1);
+            await this.pb!.collections.getList(1, 1);
             healthStatus.checks.database = { status: 'healthy', message: 'Database accessible' };
           } catch (error: any) {
             healthStatus.checks.database = { status: 'unhealthy', message: error.message };
@@ -6292,13 +6835,13 @@ Describe your campaign goals, target audience, and desired email sequence.`
           
           // Check auth status
           healthStatus.checks.auth = {
-            status: this.pb.authStore.isValid ? 'healthy' : 'unauthenticated',
-            message: this.pb.authStore.isValid ? 'Authenticated' : 'No valid authentication'
+            status: this.pb!.authStore.isValid ? 'healthy' : 'unauthenticated',
+            message: this.pb!.authStore.isValid ? 'Authenticated' : 'No valid authentication'
           };
           
           // Check collections access
           try {
-            const collections = await this.pb.collections.getList(1, 5);
+            const collections = await this.pb!.collections.getList(1, 5);
             healthStatus.checks.collections = { 
               status: 'healthy', 
               message: `${collections.items.length} collections accessible` 
@@ -6344,7 +6887,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       async ({ userId, duration, collection }) => {
         try {
           // Standard impersonation
-          const authData = await this.pb.collection(collection).impersonate(userId, duration);
+          const authData = await this.pb!.collection(collection).impersonate(userId, duration);
           
           return {
             content: [{ 
@@ -6399,12 +6942,12 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }
           
           // Get all records and delete them (since there's no native truncate)
-          const allRecords = await this.pb.collection(collection).getFullList();
+          const allRecords = await this.pb!.collection(collection).getFullList();
           const deletedCount = allRecords.length;
           
           // Delete all records
           for (const record of allRecords) {
-            await this.pb.collection(collection).delete(record.id);
+            await this.pb!.collection(collection).delete(record.id);
           }
           
           return {
@@ -6452,7 +6995,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       async ({ method, path, body, queryParams, headers }) => {
         try {
           // Build the full URL
-          const url = new URL(path.startsWith('/') ? path.slice(1) : path, this.pb.baseUrl);
+          const url = new URL(path.startsWith('/') ? path.slice(1) : path, this.pb!.baseUrl);
           
           // Add query parameters
           if (queryParams) {
@@ -6473,8 +7016,8 @@ Describe your campaign goals, target audience, and desired email sequence.`
           };
 
           // Add authorization header if authenticated
-          if (this.pb.authStore.isValid && this.pb.authStore.token) {
-            requestOptions.headers.Authorization = this.pb.authStore.token;
+          if (this.pb!.authStore.isValid && this.pb!.authStore.token) {
+            requestOptions.headers.Authorization = this.pb!.authStore.token;
           }
 
           // Add body for POST/PATCH requests
@@ -6549,7 +7092,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (fields) options.fields = fields;
           if (skipTotal) options.skipTotal = skipTotal;
 
-          const result = await this.pb.collection(collection).getList(page, perPage, options);
+          const result = await this.pb!.collection(collection).getList(page, perPage, options);
           
           return {
             content: [{
@@ -6595,7 +7138,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (fields) options.fields = fields;
           if (batch) options.batch = batch;
 
-          const result = await this.pb.collection(collection).getFullList(options);
+          const result = await this.pb!.collection(collection).getFullList(options);
           
           return {
             content: [{
@@ -6636,7 +7179,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (expand) options.expand = expand;
           if (fields) options.fields = fields;
 
-          const result = await this.pb.collection(collection).getFirstListItem(filter || '', options);
+          const result = await this.pb!.collection(collection).getFirstListItem(filter || '', options);
           
           return {
             content: [{
@@ -6671,7 +7214,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (expand) options.expand = expand;
           if (fields) options.fields = fields;
 
-          const result = await this.pb.collection(collection).getOne(id, options);
+          const result = await this.pb!.collection(collection).getOne(id, options);
           
           return {
             content: [{
@@ -6707,7 +7250,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (expand) options.expand = expand;
           if (fields) options.fields = fields;
 
-          const result = await this.pb.collection(collection).update(id, data, options);
+          const result = await this.pb!.collection(collection).update(id, data, options);
           
           return {
             content: [{
@@ -6736,7 +7279,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, id }) => {
         try {
-          await this.pb.collection(collection).delete(id);
+          await this.pb!.collection(collection).delete(id);
           
           return {
             content: [{
@@ -6769,7 +7312,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection }) => {
         try {
-          const result = await this.pb.collection(collection).listAuthMethods();
+          const result = await this.pb!.collection(collection).listAuthMethods();
           
           return {
             content: [{
@@ -6805,7 +7348,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (expand) options.expand = expand;
           if (fields) options.fields = fields;
 
-          const result = await this.pb.collection(collection).authWithPassword(identity, password, options);
+          const result = await this.pb!.collection(collection).authWithPassword(identity, password, options);
           
           return {
             content: [{
@@ -6838,7 +7381,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, email }) => {
         try {
-          const result = await this.pb.collection(collection).requestOTP(email);
+          const result = await this.pb!.collection(collection).requestOTP(email);
           
           return {
             content: [{
@@ -6874,7 +7417,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (expand) options.expand = expand;
           if (fields) options.fields = fields;
 
-          const result = await this.pb.collection(collection).authWithOTP(otpId, password, options);
+          const result = await this.pb!.collection(collection).authWithOTP(otpId, password, options);
           
           return {
             content: [{
@@ -6912,7 +7455,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (expand) options.expand = expand;
           if (fields) options.fields = fields;
 
-          const result = await this.pb.collection(collection).authRefresh(options);
+          const result = await this.pb!.collection(collection).authRefresh(options);
           
           return {
             content: [{
@@ -6945,7 +7488,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, email }) => {
         try {
-          const result = await this.pb.collection(collection).requestPasswordReset(email);
+          const result = await this.pb!.collection(collection).requestPasswordReset(email);
           
           return {
             content: [{
@@ -6979,7 +7522,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, token, password, passwordConfirm }) => {
         try {
-          const result = await this.pb.collection(collection).confirmPasswordReset(token, password, passwordConfirm);
+          const result = await this.pb!.collection(collection).confirmPasswordReset(token, password, passwordConfirm);
           
           return {
             content: [{
@@ -7011,7 +7554,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, email }) => {
         try {
-          const result = await this.pb.collection(collection).requestVerification(email);
+          const result = await this.pb!.collection(collection).requestVerification(email);
           
           return {
             content: [{
@@ -7043,7 +7586,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, token }) => {
         try {
-          const result = await this.pb.collection(collection).confirmVerification(token);
+          const result = await this.pb!.collection(collection).confirmVerification(token);
           
           return {
             content: [{
@@ -7083,7 +7626,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           if (sort) options.sort = sort;
           if (filter) options.filter = filter;
 
-          const result = await this.pb.collections.getList(page, perPage, options);
+          const result = await this.pb!.collections.getList(page, perPage, options);
           
           return {
             content: [{
@@ -7117,7 +7660,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ idOrName }) => {
         try {
-          const result = await this.pb.collections.getOne(idOrName);
+          const result = await this.pb!.collections.getOne(idOrName);
           
           return {
             content: [{
@@ -7145,7 +7688,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       {},
       async () => {
         try {
-          const response = await fetch(`${this.pb.baseUrl}/api/health`);
+          const response = await fetch(`${this.pb!.baseUrl}/api/health`);
           const result = await response.json();
           
           return {
@@ -7265,15 +7808,15 @@ Describe your campaign goals, target audience, and desired email sequence.`
                 switch (request.method) {
                   case 'POST':
                     if (!request.data) throw new Error('POST request requires data');
-                    result = await this.pb.collection(collection).create(request.data);
+                    result = await this.pb!.collection(collection).create(request.data);
                     break;
                   case 'PATCH':
                     if (!request.id || !request.data) throw new Error('PATCH request requires id and data');
-                    result = await this.pb.collection(collection).update(request.id, request.data);
+                    result = await this.pb!.collection(collection).update(request.id, request.data);
                     break;
                   case 'DELETE':
                     if (!request.id) throw new Error('DELETE request requires id');
-                    await this.pb.collection(collection).delete(request.id);
+                    await this.pb!.collection(collection).delete(request.id);
                     result = { id: request.id, deleted: true };
                     break;
                 }
@@ -7304,15 +7847,15 @@ Describe your campaign goals, target audience, and desired email sequence.`
                 switch (request.method) {
                   case 'POST':
                     if (!request.data) throw new Error('POST request requires data');
-                    result = await this.pb.collection(collection).create(request.data);
+                    result = await this.pb!.collection(collection).create(request.data);
                     break;
                   case 'PATCH':
                     if (!request.id || !request.data) throw new Error('PATCH request requires id and data');
-                    result = await this.pb.collection(collection).update(request.id, request.data);
+                    result = await this.pb!.collection(collection).update(request.id, request.data);
                     break;
                   case 'DELETE':
                     if (!request.id) throw new Error('DELETE request requires id');
-                    await this.pb.collection(collection).delete(request.id);
+                    await this.pb!.collection(collection).delete(request.id);
                     result = { id: request.id, deleted: true };
                     break;
                 }
@@ -7375,7 +7918,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       async ({ collection, recordId, filename, thumb }) => {
         try {
           // Build file URL
-          let fileUrl = `${this.pb.baseUrl}/api/files/${collection}/${recordId}/${filename}`;
+          let fileUrl = `${this.pb!.baseUrl}/api/files/${collection}/${recordId}/${filename}`;
           
           if (thumb) {
             fileUrl += `?thumb=${thumb}`;
@@ -7383,7 +7926,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
           // Try to get record to validate file exists
           try {
-            const record = await this.pb.collection(collection).getOne(recordId);
+            const record = await this.pb!.collection(collection).getOne(recordId);
             
             // Find the field that contains this filename
             let fileField = null;
@@ -7459,7 +8002,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
       },
       async ({ collection, recordId }) => {
         try {
-          const baseUrl = this.pb.baseUrl.replace(/^http/, 'ws');
+          const baseUrl = this.pb!.baseUrl.replace(/^http/, 'ws');
           
           let subscriptionTopic = '*';
           if (collection && recordId) {
@@ -7471,7 +8014,7 @@ Describe your campaign goals, target audience, and desired email sequence.`
           const info = {
             realtime_endpoint: `${baseUrl}/api/realtime`,
             subscription_topic: subscriptionTopic,
-            auth_required: this.pb.authStore.isValid,
+            auth_required: this.pb!.authStore.isValid,
             connection_info: {
               protocol: 'WebSocket',
               auth_method: 'Authorization header or query param',
@@ -7491,7 +8034,7 @@ pb.realtime.unsubscribe('${subscriptionTopic}');
               `.trim(),
               curl: `
 # Connect to WebSocket
-wscat -c "${baseUrl}/api/realtime${this.pb.authStore.token ? '?authorization=' + this.pb.authStore.token : ''}"
+wscat -c "${baseUrl}/api/realtime${this.pb!.authStore.token ? '?authorization=' + this.pb!.authStore.token : ''}"
 
 # Subscribe message
 {"clientId": "CLIENT_ID", "command": "subscribe", "data": {"topic": "${subscriptionTopic}"}}
@@ -7591,7 +8134,7 @@ wscat -c "${baseUrl}/api/realtime${this.pb.authStore.token ? '?authorization=' +
           const page = pagination?.page || 1;
           const perPage = pagination?.perPage || 30;
           
-          const result = await this.pb.collection(collection).getList(page, perPage, options);
+          const result = await this.pb!.collection(collection).getList(page, perPage, options);
 
           // If groupBy is specified, group the results
           let processedResults: any[] | { [key: string]: any[] } = result.items;
@@ -7687,12 +8230,12 @@ wscat -c "${baseUrl}/api/realtime${this.pb.authStore.token ? '?authorization=' +
         return await response.json();
       
       case 'update_field':
-        return await this.pb.collection(collection).update(record.id, {
+        return await this.pb!.collection(collection).update(record.id, {
           [action.config.field]: action.config.value
         });
       
       case 'create_record':
-        return await this.pb.collection(action.config.collection).create(action.config.data);
+        return await this.pb!.collection(action.config.collection).create(action.config.data);
       
       default:
         throw new Error(`Unknown action type: ${action.type}`);
@@ -7837,6 +8380,48 @@ wscat -c "${baseUrl}/api/realtime${this.pb.authStore.token ? '?authorization=' +
     return JSON.stringify(data);
   }
 
+  // Parse Smithery configuration from query parameters (dot-notation support)
+  private parseSmitheryConfig(query: Record<string, any>): Record<string, any> {
+    const config: Record<string, any> = {};
+    
+    for (const [key, value] of Object.entries(query)) {
+      // Convert dot-notation to nested object
+      // e.g., "pocketbase.url" becomes { pocketbase: { url: value } }
+      const keys = key.split('.');
+      let current = config;
+      
+      for (let i = 0; i < keys.length - 1; i++) {
+        if (!current[keys[i]]) {
+          current[keys[i]] = {};
+        }
+        current = current[keys[i]];
+      }
+      
+      current[keys[keys.length - 1]] = value;
+    }
+    
+    // Flatten for our config system (we use flat env vars)
+    const flattened: Record<string, any> = {};
+    
+    // Map common Smithery config patterns to our environment variables
+    if (config.pocketbaseUrl) flattened.pocketbaseUrl = config.pocketbaseUrl;
+    if (config.pocketbase?.url) flattened.pocketbaseUrl = config.pocketbase.url;
+    if (config.adminEmail) flattened.adminEmail = config.adminEmail;
+    if (config.admin?.email) flattened.adminEmail = config.admin.email;
+    if (config.adminPassword) flattened.adminPassword = config.adminPassword;
+    if (config.admin?.password) flattened.adminPassword = config.admin.password;
+    if (config.stripeSecretKey) flattened.stripeSecretKey = config.stripeSecretKey;
+    if (config.stripe?.secretKey) flattened.stripeSecretKey = config.stripe.secretKey;
+    if (config.emailService) flattened.emailService = config.emailService;
+    if (config.email?.service) flattened.emailService = config.email.service;
+    if (config.smtpHost) flattened.smtpHost = config.smtpHost;
+    if (config.smtp?.host) flattened.smtpHost = config.smtp.host;
+    if (config.sendgridApiKey) flattened.sendgridApiKey = config.sendgridApiKey;
+    if (config.sendgrid?.apiKey) flattened.sendgridApiKey = config.sendgrid.apiKey;
+    
+    return flattened;
+  }
+
   private async formatAsPDF(data: any, title: string): Promise<string> {
     // Simple PDF formatting - in a real implementation, you'd use a PDF library
     return `PDF Report: ${title}\n${JSON.stringify(data, null, 2)}`;
@@ -7857,6 +8442,189 @@ wscat -c "${baseUrl}/api/realtime${this.pb.authStore.token ? '?authorization=' +
     } catch (error) {
       console.error(`[MCP DEBUG] Error connecting server: ${error}`);
     }
+  }
+
+  // Run as SSE server with enhanced configuration
+  async runSSE(port: number = 3000, host: string = 'localhost', corsOrigin: string = '*') {
+    console.error(`[MCP DEBUG] Starting PocketBase MCP SSE server on ${host}:${port}...`);
+    
+    // Log registered tools for debugging
+    // @ts-ignore
+    const toolNames = Object.keys(this.server._tools || {});
+    console.error(`[MCP DEBUG] Registered tools: ${JSON.stringify(toolNames, null, 2)}`);
+    
+    // Import express and create app
+    const express = require('express');
+    const app = express();
+    
+    // Enhanced middleware
+    app.use(express.json({ limit: '10mb' })); // Increased limit for file uploads
+    
+    // CORS configuration
+    app.use((req: any, res: any, next: any) => {
+      res.header('Access-Control-Allow-Origin', corsOrigin);
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+      } else {
+        next();
+      }
+    });
+
+    // Store transports by session ID
+    const transports: Record<string, any> = {};
+
+    // Health check endpoint
+    app.get('/health', (req: any, res: any) => {
+      res.json({ 
+        status: 'healthy', 
+        server: 'pocketbase-mcp-server',
+        version: '3.0.0',
+        transport: 'sse',
+        host,
+        port,
+        pocketbaseUrl: this.pb?.baseUrl || 'not-configured',
+        isAuthenticated: this.pb?.authStore?.isValid || false
+      });
+    });
+
+    // SSE endpoint for MCP connection with Smithery compatibility
+    app.get('/mcp', async (req: any, res: any) => {
+      console.log('Received GET request to /mcp - establishing SSE connection');
+      
+      try {
+        // Handle Smithery configuration via query parameters
+        const config = this.parseSmitheryConfig(req.query);
+        if (config && Object.keys(config).length > 0) {
+          console.log('Applying Smithery configuration:', config);
+          // Apply configuration to environment for this session
+          applyConfigToEnv(config);
+        }
+        
+        const transport = new SSEServerTransport('/mcp', res);
+        const sessionId = transport.sessionId;
+        transports[sessionId] = transport;
+        
+        res.on("close", () => {
+          console.log(`SSE connection closed for session ${sessionId}`);
+          delete transports[sessionId];
+        });
+
+        await this.server.connect(transport);
+        console.error(`[MCP DEBUG] SSE transport connected for session ${sessionId}`);
+      } catch (error) {
+        console.error(`[MCP DEBUG] Error establishing SSE connection: ${error}`);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to establish SSE connection' });
+        }
+      }
+    });
+
+    // POST endpoint for MCP communication (Smithery requirement)
+    app.post('/mcp', async (req: any, res: any) => {
+      console.log('Received POST request to /mcp');
+      
+      try {
+        // Handle Smithery configuration via query parameters
+        const config = this.parseSmitheryConfig(req.query);
+        if (config && Object.keys(config).length > 0) {
+          console.log('Applying Smithery configuration:', config);
+          applyConfigToEnv(config);
+        }
+        
+        // For POST requests, we'll return server capabilities and tool list
+        // This allows Smithery to discover tools without full connection
+        const capabilities = {
+          server: {
+            name: 'pocketbase-server',
+            version: '3.0.0'
+          },
+          capabilities: {
+            tools: {},
+            resources: {},
+            prompts: {}
+          },
+          // @ts-ignore - Access internal tools for discovery
+          tools: Object.keys(this.server._tools || {}),
+          // @ts-ignore - Access internal resources for discovery  
+          resources: Object.keys(this.server._resources || {}),
+          // @ts-ignore - Access internal prompts for discovery
+          prompts: Object.keys(this.server._prompts || {})
+        };
+        
+        res.json(capabilities);
+      } catch (error) {
+        console.error(`[MCP DEBUG] Error handling POST to /mcp: ${error}`);
+        res.status(500).json({ error: 'Failed to handle MCP POST request' });
+      }
+    });
+
+    // DELETE endpoint for MCP cleanup (Smithery requirement)
+    app.delete('/mcp', async (req: any, res: any) => {
+      console.log('Received DELETE request to /mcp - cleaning up connections');
+      
+      try {
+        // Close all active transports
+        for (const sessionId in transports) {
+          try {
+            await transports[sessionId].close();
+            delete transports[sessionId];
+          } catch (error) {
+            console.error(`Error closing transport ${sessionId}:`, error);
+          }
+        }
+        
+        res.json({ success: true, message: 'All MCP connections closed' });
+      } catch (error) {
+        console.error(`[MCP DEBUG] Error handling DELETE to /mcp: ${error}`);
+        res.status(500).json({ error: 'Failed to handle MCP DELETE request' });
+      }
+    });
+
+    // Start the server
+    app.listen(port, host, () => {
+      console.error(`[MCP DEBUG] PocketBase MCP SSE server running on ${host}:${port}`);
+      console.log(`
+==============================================
+PocketBase MCP Server - SSE Mode
+Host: ${host}
+Port: ${port}
+Health Check: http://${host}:${port}/health
+MCP Endpoint: http://${host}:${port}/mcp
+CORS Origin: ${corsOrigin}
+==============================================
+`);
+    });
+
+    // Handle server shutdown
+    this.setupShutdownHandlers(transports);
+  }
+
+  // Run as pure HTTP server (using existing Express setup for HTTP-like functionality)
+  async runHTTP(port: number = 3000, host: string = 'localhost', corsOrigin: string = '*') {
+    // For now, delegate to runSSE since the MCP SDK may not have pure HTTP transport
+    // This provides HTTP access via SSE transport which is HTTP-compatible
+    console.error(`[MCP DEBUG] HTTP transport delegating to SSE transport for compatibility...`);
+    await this.runSSE(port, host, corsOrigin);
+  }
+
+  // Shared shutdown handler setup
+  private setupShutdownHandlers(transports: Record<string, any>) {
+    process.on('SIGINT', async () => {
+      console.log('Shutting down server...');
+      for (const sessionId in transports) {
+        try {
+          console.log(`Closing transport for session ${sessionId}`);
+          await transports[sessionId].close();
+          delete transports[sessionId];
+        } catch (error) {
+          console.error(`Error closing transport for session ${sessionId}:`, error);
+        }
+      }
+      console.log('Server shutdown complete');
+      process.exit(0);
+    });
   }
 
   // Run as HTTP server
@@ -7882,8 +8650,8 @@ wscat -c "${baseUrl}/api/realtime${this.pb.authStore.token ? '?authorization=' +
         status: 'healthy', 
         server: 'pocketbase-mcp-server',
         version: '3.0.0',
-        pocketbaseUrl: this.pb.baseUrl,
-        isAuthenticated: this.pb.authStore?.isValid || false
+        pocketbaseUrl: this.pb!.baseUrl,
+        isAuthenticated: this.pb!.authStore?.isValid || false
       });
     });
 
@@ -7942,6 +8710,88 @@ MCP Endpoint: http://localhost:${port}/mcp
   }
 }
 
+// Transport types supported by the MCP server
+type TransportType = 'stdio' | 'sse' | 'http';
+
+// Transport configuration interface
+interface TransportConfig {
+  type: TransportType;
+  port?: number;
+  host?: string;
+  corsOrigin?: string;
+  auth?: boolean;
+}
+
+// Function to detect transport type from environment and command line arguments
+function detectTransportType(): TransportConfig {
+  // Check command line arguments first
+  const args = process.argv.slice(2);
+  const transportArg = args.find(arg => arg.startsWith('--transport='));
+  const portArg = args.find(arg => arg.startsWith('--port='));
+  const hostArg = args.find(arg => arg.startsWith('--host='));
+  
+  let transportType: TransportType = 'stdio'; // default
+  let port: number | undefined;
+  let host: string | undefined;
+  let corsOrigin: string | undefined;
+  
+  // Parse command line arguments
+  if (transportArg) {
+    const type = transportArg.split('=')[1] as TransportType;
+    if (['stdio', 'sse', 'http'].includes(type)) {
+      transportType = type;
+    }
+  }
+  
+  if (portArg) {
+    port = parseInt(portArg.split('=')[1]);
+  }
+  
+  if (hostArg) {
+    host = hostArg.split('=')[1];
+  }
+  
+  // Check environment variables
+  if (process.env.MCP_TRANSPORT_TYPE) {
+    const envType = process.env.MCP_TRANSPORT_TYPE as TransportType;
+    if (['stdio', 'sse', 'http'].includes(envType)) {
+      transportType = envType;
+    }
+  }
+  
+  // Legacy environment variable support
+  if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
+    transportType = 'sse'; // Default to SSE for HTTP mode
+  }
+  
+  if (process.env.SSE_MODE === 'true') {
+    transportType = 'sse';
+  }
+  
+  // Port detection
+  if (!port) {
+    port = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT) : 
+           process.env.PORT ? parseInt(process.env.PORT) : 
+           (transportType === 'stdio' ? undefined : 3000);
+  }
+  
+  // Host detection  
+  if (!host) {
+    host = process.env.MCP_HOST || process.env.HOST || 'localhost';
+  }
+  
+  // CORS origin
+  corsOrigin = process.env.MCP_CORS_ORIGIN || process.env.CORS_ORIGIN || '*';
+  
+  return {
+    type: transportType,
+    port,
+    host,
+    corsOrigin,
+    auth: process.env.MCP_AUTH === 'true'
+  };
+}
+
 // Create and run server
 const server = new PocketBaseServer();
 
@@ -7949,14 +8799,46 @@ const server = new PocketBaseServer();
 export default PocketBaseServer;
 export { PocketBaseServer };
 
-// Check if we should run in HTTP mode (for Smithery container deployment)
-if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
-  // Get port from environment variable or default to 3000
-  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+// Main server startup with transport detection
+async function startServer() {
+  const config = detectTransportType();
   
-  // Run HTTP server for Smithery compatibility
-  server.runHttp(port).catch(console.error);
+  console.error(`[MCP DEBUG] Detected transport type: ${config.type}`);
+  if (config.port) console.error(`[MCP DEBUG] Port: ${config.port}`);
+  if (config.host) console.error(`[MCP DEBUG] Host: ${config.host}`);
+  
+  try {
+    switch (config.type) {
+      case 'stdio':
+        console.error('[MCP DEBUG] Starting STDIO transport...');
+        await server.run();
+        break;
+        
+      case 'sse':
+        console.error(`[MCP DEBUG] Starting SSE transport on ${config.host}:${config.port}...`);
+        await server.runSSE(config.port!, config.host, config.corsOrigin);
+        break;
+        
+      case 'http':
+        console.error(`[MCP DEBUG] Starting HTTP transport on ${config.host}:${config.port}...`);
+        await server.runHTTP(config.port!, config.host, config.corsOrigin);
+        break;
+        
+      default:
+        throw new Error(`Unsupported transport type: ${config.type}`);
+    }
+  } catch (error) {
+    console.error(`[MCP ERROR] Failed to start server with ${config.type} transport:`, error);
+    process.exit(1);
+  }
+}
+
+// Legacy compatibility check - keep existing behavior for backward compatibility  
+if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
+  // Legacy HTTP/SSE mode
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  server.runSSE(port).catch(console.error);
 } else {
-  // Run stdio server for local development
-  server.run().catch(console.error);
+  // Use new transport detection system
+  startServer().catch(console.error);
 }

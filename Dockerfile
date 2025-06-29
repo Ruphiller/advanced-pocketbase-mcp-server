@@ -6,10 +6,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package.json and package-lock.json to the working directory
-COPY package.json tsconfig.json ./
+COPY package*.json tsconfig.json ./
 
 # Install project dependencies
-RUN --mount=type=cache,target=/root/.npm npm install
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 # Copy the rest of the application's source code
 COPY src/ ./src/
@@ -23,12 +23,27 @@ FROM node:20-alpine
 # Set the working directory in the container
 WORKDIR /app
 
-# Copy the built files and node_modules from the builder stage
+# Copy the built files and production dependencies from the builder stage
 COPY --from=builder /app/build ./build
-COPY --from=builder /app/node_modules ./node_modules
+COPY package*.json ./
 
-# Expose the port on which the server will run (assume 3000, replace if necessary)
+# Install only production dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S mcp -u 1001
+
+# Change ownership of the app directory
+RUN chown -R mcp:nodejs /app
+USER mcp
+
+# Expose the port on which the server will run (will be set by PORT environment variable)
 EXPOSE 3000
+
+# Health check for container monitoring
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "const http = require('http'); const options = { hostname: 'localhost', port: process.env.PORT || 3000, path: '/health', timeout: 2000 }; const req = http.request(options, (res) => { if (res.statusCode === 200) { process.exit(0); } else { process.exit(1); } }); req.on('error', () => process.exit(1)); req.on('timeout', () => process.exit(1)); req.end();"
 
 # Set default environment variables (these will be overridden by Smithery)
 ENV POCKETBASE_URL=http://127.0.0.1:8090
@@ -47,5 +62,6 @@ ENV DEFAULT_FROM_EMAIL=""
 ENV APP_NAME=""
 ENV APP_URL=""
 
-# Start the server
-CMD ["node", "build/index.js"]
+# Start the server with SSE transport for Smithery compatibility
+# Smithery will pass configuration via query parameters to /mcp endpoint
+CMD ["node", "build/index.js", "--transport=sse", "--port=${PORT:-3000}", "--host=0.0.0.0"]

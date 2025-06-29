@@ -1,6 +1,6 @@
 # Smithery configuration file: https://smithery.ai/docs/build/project-config/smithery-yaml
 
-runtime: "container"
+runtime: "typescript"
 startCommand:
   type: "http"
   configSchema:
@@ -15,21 +15,16 @@ startCommand:
         description: "The URL of your PocketBase instance (e.g., http://127.0.0.1:8090)"
         
       # === OPTIONAL: ADMIN CREDENTIALS ===
-      pocketbaseAdminEmail:
+      adminEmail:
         type: string
         title: "Admin Email"
         default: ""
         description: "Admin email for certain operations"
-      pocketbaseAdminPassword:
+      adminPassword:
         type: string
         title: "Admin Password"
         default: ""
         description: "Admin password"
-      pocketbaseDataDir:
-        type: string
-        title: "Data Directory"
-        default: ""
-        description: "Custom data directory path"
         
       # === OPTIONAL: STRIPE CONFIGURATION ===
       stripeSecretKey:
@@ -37,11 +32,6 @@ startCommand:
         title: "Stripe Secret Key"
         default: ""
         description: "Stripe secret key (sk_test_... for testing, sk_live_... for production)"
-      stripeWebhookSecret:
-        type: string
-        title: "Stripe Webhook Secret"
-        default: ""
-        description: "Stripe webhook endpoint secret (whsec_...)"
         
       # === OPTIONAL: EMAIL CONFIGURATION ===
       emailService:
@@ -91,8 +81,9 @@ startCommand:
         type: string
         title: "Application URL"
         default: ""
-        description: "Application URL (e.g., https://yourapp.com)" 
-        exampleConfig:
+        description: "Application URL (e.g., https://yourapp.com)"
+        
+  exampleConfig:
     pocketbaseUrl: "http://127.0.0.1:8090"
     stripeSecretKey: "sk_test_..."
     emailService: "sendgrid"
@@ -100,30 +91,3 @@ startCommand:
     defaultFromEmail: "noreply@yourapp.com"
     appName: "My SaaS App"
     appUrl: "https://myapp.com"
-  commandFunction: |
-    (config) => {
-      const cmd = ["node", "build/index.js"];
-      
-      const env = {
-        POCKETBASE_URL: config.pocketbaseUrl || "http://127.0.0.1:8090",
-        POCKETBASE_ADMIN_EMAIL: config.pocketbaseAdminEmail || "",
-        POCKETBASE_ADMIN_PASSWORD: config.pocketbaseAdminPassword || "",
-        POCKETBASE_DATA_DIR: config.pocketbaseDataDir || "",
-        STRIPE_SECRET_KEY: config.stripeSecretKey || "",
-        STRIPE_WEBHOOK_SECRET: config.stripeWebhookSecret || "",
-        EMAIL_SERVICE: config.emailService || "",
-        SENDGRID_API_KEY: config.sendgridApiKey || "",
-        SMTP_HOST: config.smtpHost || "",
-        SMTP_PORT: config.smtpPort ? config.smtpPort.toString() : "587",
-        SMTP_USER: config.smtpUser || "",
-        SMTP_PASS: config.smtpPass || "",
-        DEFAULT_FROM_EMAIL: config.defaultFromEmail || "",
-        APP_NAME: config.appName || "",
-        APP_URL: config.appUrl || ""
-      };
-      
-      return { cmd, env };
-    }
-build:
-  dockerfile: "Dockerfile"
-  dockerBuildPath: "."
