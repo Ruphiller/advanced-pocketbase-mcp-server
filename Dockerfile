@@ -6,10 +6,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package.json and package-lock.json first for better caching
-COPY package.json package-lock.json tsconfig.json ./
+COPY package.json ./
+COPY package-lock.json ./
+COPY tsconfig.json ./
+COPY install-deps.sh ./
 
-# Install project dependencies (explicitly list files to ensure they exist)
-RUN npm ci --verbose
+# Install project dependencies with robust error handling
+RUN chmod +x install-deps.sh && ./install-deps.sh
 
 # Copy the rest of the application's source code
 COPY src/ ./src/

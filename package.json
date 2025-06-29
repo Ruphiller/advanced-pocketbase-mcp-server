@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "preinstall": "node -e \"console.log('package-lock.json exists:', require('fs').existsSync('package-lock.json'))\"",
+    "install-deps": "sh install-deps.sh",
     "build": "tsc",
     "start": "node build/index.js",
     "start:stdio": "node build/index.js --transport=stdio",
