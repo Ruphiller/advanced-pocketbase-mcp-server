@@ -1,0 +1,21 @@
+name = "advanced-pocketbase-mcp-server"
+main = "dist/worker.js"
+compatibility_date = "2025-06-29"
+compatibility_flags = ["nodejs_compat"]
+
+[env.production]
+name = "advanced-pocketbase-mcp-server"
+
+[env.staging]
+name = "advanced-pocketbase-mcp-server-staging"
+
+# Environment variables (configure these in your Cloudflare dashboard)
+[vars]
+# POCKETBASE_URL = "https://your-pocketbase-instance.com"
+# POCKETBASE_ADMIN_EMAIL = "admin@example.com"
+
+# Secrets (set these via: wrangler secret put SECRET_NAME)
+# POCKETBASE_ADMIN_PASSWORD
+# STRIPE_SECRET_KEY
+# SENDGRID_API_KEY
+# SMTP_PASSWORD
