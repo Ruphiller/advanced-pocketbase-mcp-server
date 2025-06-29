@@ -501,17 +501,18 @@ class PocketBaseServer {
     email?: string;
     password?: string;
     config?: ServerConfiguration;
+    timeout?: number;
   }): Promise<void> {
+    const timeout = options?.timeout || 10000; // 10 second default timeout
+    
     try {
-      // Initialize PocketBase if not already done
-      if (!this.initializationState.pocketbaseInitialized) {
-        await this.initializePocketBase(options?.config);
-      }
-
-      // Authenticate if required
-      if (options?.requireAuth && !this.initializationState.isAuthenticated) {
-        await this.authenticatePocketBase(options.email, options.password, options.isAdmin);
-      }
+      // Wrap initialization in a timeout to prevent hanging
+      await Promise.race([
+        this.doInitialization(options),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Initialization timeout')), timeout)
+        )
+      ]);
     } catch (error: any) {
       // Add context to the error for better debugging
       const contextInfo = {
@@ -520,7 +521,8 @@ class PocketBaseServer {
         isAuthenticated: this.initializationState.isAuthenticated,
         hasValidConfig: this.initializationState.hasValidConfig,
         requireAuth: options?.requireAuth || false,
-        isAdmin: options?.isAdmin || false
+        isAdmin: options?.isAdmin || false,
+        timeout: timeout
       };
 
       // Log detailed context for debugging
@@ -528,6 +530,24 @@ class PocketBaseServer {
       
       // Throw a comprehensive error message
       throw new Error(`PocketBase MCP Server initialization failed: ${error.message}. Context: ${JSON.stringify(contextInfo)}`);
+    }
+  }
+
+  private async doInitialization(options?: {
+    requireAuth?: boolean;
+    isAdmin?: boolean;
+    email?: string;
+    password?: string;
+    config?: ServerConfiguration;
+  }): Promise<void> {
+    // Initialize PocketBase if not already done
+    if (!this.initializationState.pocketbaseInitialized) {
+      await this.initializePocketBase(options?.config);
+    }
+
+    // Authenticate if required
+    if (options?.requireAuth && !this.initializationState.isAuthenticated) {
+      await this.authenticatePocketBase(options.email, options.password, options.isAdmin);
     }
   }
 
@@ -1313,13 +1333,14 @@ Describe your campaign goals, target audience, and desired email sequence.`
 
     // === CORE RESOURCES ===
     
-    // Server info resource
+    // Server info resource with fast timeout
     this.server.resource(
       "server-info",
       "pocketbase://info",
       async (uri) => {
         try {
-          await this.ensureInitialized();
+          // Use shorter timeout for discovery
+          await this.ensureInitialized({ timeout: 3000 });
           return {
             contents: [{
               uri: uri.href,
@@ -1332,7 +1353,20 @@ Describe your campaign goals, target audience, and desired email sequence.`
             }]
           };
         } catch (error: any) {
-          throw new Error(`Failed to get server info: ${error.message}`);
+          // Provide basic info even if initialization fails
+          return {
+            contents: [{
+              uri: uri.href,
+              text: JSON.stringify({
+                url: process.env.POCKETBASE_URL || 'not-configured',
+                baseURL: process.env.POCKETBASE_URL || 'not-configured',
+                isAuthenticated: false,
+                sdkVersion: '0.26.1',
+                status: 'initialization-pending',
+                error: error.message
+              }, null, 2)
+            }]
+          };
         }
       }
     );
@@ -2697,26 +2731,37 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }]
         };
       }
-    );    // Server info tool
+    );    // Server info tool with fast timeout
     this.server.tool(
       'get_server_info',
       {},
       async () => {
         try {
-          await this.ensureInitialized();
-          return {              content: [{
-                type: 'text',
-                text: JSON.stringify({
-                  url: this.pb!.baseUrl,
-                  isAuthenticated: this.pb!.authStore?.isValid || false,
-                  version: '0.1.0'
-                }, null, 2)
-              }]
+          // Use shorter timeout for discovery
+          await this.ensureInitialized({ timeout: 3000 });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                url: this.pb!.baseUrl,
+                isAuthenticated: this.pb!.authStore?.isValid || false,
+                version: '0.1.0'
+              }, null, 2)
+            }]
           };
         } catch (error: any) {
+          // Provide basic info even if initialization fails
           return {
-            content: [{ type: 'text', text: `Failed to get server info: ${error.message}` }],
-            isError: true
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                url: process.env.POCKETBASE_URL || 'not-configured',
+                isAuthenticated: false,
+                version: '0.1.0',
+                status: 'initialization-pending',
+                error: error.message
+              }, null, 2)
+            }]
           };
         }
       }
