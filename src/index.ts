@@ -148,6 +148,9 @@ class PocketBaseServer {
   
   // Configuration cache
   private configuration?: ServerConfiguration;
+  
+  // Initialization promise to prevent multiple simultaneous initializations
+  private initializationPromise: Promise<void> | null = null;
 
   constructor() {
     this.server = new McpServer({
@@ -497,50 +500,51 @@ class PocketBaseServer {
   /**
    * Ensure PocketBase is initialized and optionally authenticated
    * This is the main function called by tools and resources
+   * 
+   * Refactored for fully lazy initialization: 
+   * - Server startup does not block on PocketBase connection.
+   * - Initialization only occurs when a tool requiring it is invoked and config is present.
+   * - Prevents startup timeouts during Smithery tool scanning.
    */
-  private async ensureInitialized(options?: {
-    requireAuth?: boolean;
-    isAdmin?: boolean;
-    email?: string;
-    password?: string;
-    config?: ServerConfiguration;
-    timeout?: number;
-    allowDiscoveryMode?: boolean;
-  }): Promise<void> {
-    // If in discovery mode and it's allowed, skip initialization
-    if (this.discoveryMode && (options?.allowDiscoveryMode !== false)) {
-      console.error('[MCP DEBUG] Skipping initialization due to discovery mode');
+  private async ensureInitialized(options: { timeout?: number, requireAuth?: boolean, isAdmin?: boolean, allowDiscoveryMode?: boolean } = {}) {
+    const { timeout = 10000, requireAuth = true, isAdmin = false, allowDiscoveryMode = false } = options;
+
+    // If in discovery mode, don't initialize unless specifically allowed
+    if (this.discoveryMode && !allowDiscoveryMode) {
+      console.log('[MCP DEBUG] In discovery mode, skipping initialization.');
       return;
     }
-    
-    const timeout = options?.timeout || 10000; // 10 second default timeout
-    
-    try {
-      // Wrap initialization in a timeout to prevent hanging
-      await Promise.race([
-        this.doInitialization(options),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Initialization timeout')), timeout)
-        )
-      ]);
-    } catch (error: any) {
-      // Add context to the error for better debugging
-      const contextInfo = {
-        pocketbaseInitialized: this.initializationState.pocketbaseInitialized,
-        servicesInitialized: this.initializationState.servicesInitialized,
-        isAuthenticated: this.initializationState.isAuthenticated,
-        hasValidConfig: this.initializationState.hasValidConfig,
-        requireAuth: options?.requireAuth || false,
-        isAdmin: options?.isAdmin || false,
-        timeout: timeout,
-        discoveryMode: this.discoveryMode
-      };
 
-      // Log detailed context for debugging
-      console.error('Initialization failed with context:', contextInfo);
-      
-      // Throw a comprehensive error message
-      throw new Error(`PocketBase MCP Server initialization failed: ${error.message}. Context: ${JSON.stringify(contextInfo)}`);
+    // If already fully initialized, no need to do anything
+    if (this.initializationState.pocketbaseInitialized && (!requireAuth || this.initializationState.isAuthenticated)) {
+      return;
+    }
+
+    // Load config if not already loaded. This is fast and synchronous.
+    if (!this.initializationState.configLoaded) {
+      this.loadConfiguration();
+    }
+
+    // If config is not valid, we cannot proceed with initialization.
+    if (!this.initializationState.hasValidConfig) {
+      console.warn('[MCP WARN] Cannot initialize: PocketBase URL is not configured.');
+      return;
+    }
+
+    // If we're in the process of initializing, wait for it to complete.
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+      return;
+    }
+
+    // Start the actual initialization
+    this.initializationPromise = this.doInitialization({ requireAuth, isAdmin });
+
+    try {
+      await this.initializationPromise;
+    } finally {
+      // Clear the promise after completion/failure to allow for future retries.
+      this.initializationPromise = null;
     }
   }
 
