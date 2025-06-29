@@ -143,6 +143,9 @@ class PocketBaseServer {
     isAuthenticated: false
   };
   
+  // Flag to indicate if we're in discovery mode (no initialization required)
+  private discoveryMode: boolean = false;
+  
   // Configuration cache
   private configuration?: ServerConfiguration;
 
@@ -502,7 +505,14 @@ class PocketBaseServer {
     password?: string;
     config?: ServerConfiguration;
     timeout?: number;
+    allowDiscoveryMode?: boolean;
   }): Promise<void> {
+    // If in discovery mode and it's allowed, skip initialization
+    if (this.discoveryMode && (options?.allowDiscoveryMode !== false)) {
+      console.error('[MCP DEBUG] Skipping initialization due to discovery mode');
+      return;
+    }
+    
     const timeout = options?.timeout || 10000; // 10 second default timeout
     
     try {
@@ -522,7 +532,8 @@ class PocketBaseServer {
         hasValidConfig: this.initializationState.hasValidConfig,
         requireAuth: options?.requireAuth || false,
         isAdmin: options?.isAdmin || false,
-        timeout: timeout
+        timeout: timeout,
+        discoveryMode: this.discoveryMode
       };
 
       // Log detailed context for debugging
@@ -2788,7 +2799,32 @@ Describe your campaign goals, target audience, and desired email sequence.`
         };
       }
     );
-    
+
+    // Discovery mode tool for immediate response to tools/list requests
+    // This tool is specifically designed to respond quickly during Smithery scanning
+    this.server.tool(
+      'smithery_discovery',
+      {},
+      async () => {
+        console.error('[MCP DEBUG] Smithery discovery tool called');
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              discovered: true,
+              server: 'pocketbase-server',
+              version: '0.1.0',
+              description: 'Advanced PocketBase MCP Server - Ready for configuration',
+              status: this.discoveryMode ? 'discovery_mode' : 'configured',
+              capabilities: ['database', 'authentication', 'real-time', 'email', 'payments'],
+              configuration_required: this.discoveryMode,
+              quick_start: 'Set POCKETBASE_URL environment variable to begin'
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
     // Try to access tools through the server's API
     try {
       // @ts-ignore - Using internal API for debugging
@@ -2811,14 +2847,30 @@ Describe your campaign goals, target audience, and desired email sequence.`
           }]
         };
       }
-    );    // Server info tool with fast timeout
+    );    // Server info tool with fast timeout and discovery mode support
     this.server.tool(
       'get_server_info',
       {},
       async () => {
         try {
-          // Use shorter timeout for discovery
-          await this.ensureInitialized({ timeout: 3000 });
+          // Use shorter timeout for discovery, allow discovery mode
+          await this.ensureInitialized({ timeout: 2000, allowDiscoveryMode: true });
+          
+          if (this.discoveryMode) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({
+                  url: process.env.POCKETBASE_URL || 'not-configured',
+                  isAuthenticated: false,
+                  version: '0.1.0',
+                  mode: 'discovery',
+                  status: 'awaiting-configuration'
+                }, null, 2)
+              }]
+            };
+          }
+          
           return {
             content: [{
               type: 'text',
