@@ -8969,15 +8969,23 @@ function detectTransportType(): TransportConfig {
   };
 }
 
-// Create and run server
-const server = new PocketBaseServer();
-
 // Export the class for testing
 export default PocketBaseServer;
 export { PocketBaseServer };
 
+// Lazy server instance creation
+let serverInstance: PocketBaseServer | null = null;
+
+function getServerInstance(): PocketBaseServer {
+  if (!serverInstance) {
+    serverInstance = new PocketBaseServer();
+  }
+  return serverInstance;
+}
+
 // Main server startup with transport detection
 async function startServer() {
+  const server = getServerInstance();
   const config = detectTransportType();
   
   console.error(`[MCP DEBUG] Detected transport type: ${config.type}`);
@@ -9010,12 +9018,15 @@ async function startServer() {
   }
 }
 
-// Legacy compatibility check - keep existing behavior for backward compatibility  
-if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
-  // Legacy HTTP/SSE mode
-  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-  server.runSSE(port).catch(console.error);
-} else {
-  // Use new transport detection system
-  startServer().catch(console.error);
+// Only start the server if this script is run directly (not imported)
+if (require.main === module) {
+  // Legacy compatibility check - keep existing behavior for backward compatibility  
+  if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
+    // Legacy HTTP/SSE mode
+    const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+    getServerInstance().runSSE(port).catch(console.error);
+  } else {
+    // Use new transport detection system
+    startServer().catch(console.error);
+  }
 }
