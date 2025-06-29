@@ -9023,14 +9023,22 @@ async function startServer() {
 }
 
 // Only start the server if this script is run directly (not imported)
-if (import.meta.url === `file://${process.argv[1]}`) {
-  // Legacy compatibility check - keep existing behavior for backward compatibility  
-  if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
-    // Legacy HTTP/SSE mode
-    const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-    getServerInstance().runSSE(port).catch(console.error);
-  } else {
-    // Use new transport detection system
-    startServer().catch(console.error);
-  }
-}
+// For now, comment out auto-start to ensure lazy loading works
+// TODO: Re-enable when entry point detection is working properly
+
+// const isMainModule = process.argv[1] && import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`;
+
+// if (isMainModule) {
+//   // Legacy compatibility check - keep existing behavior for backward compatibility  
+//   if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
+//     // Legacy HTTP/SSE mode
+//     const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+//     getServerInstance().runSSE(port).catch(console.error);
+//   } else {
+//     // Use new transport detection system
+//     startServer().catch(console.error);
+//   }
+// }
+
+// For manual testing, you can uncomment this line:
+// startServer().catch(console.error);
