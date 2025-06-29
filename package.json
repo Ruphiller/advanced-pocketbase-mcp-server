@@ -5,9 +5,10 @@
   "scripts": {
     "preinstall": "node -e \"console.log('package-lock.json exists:', require('fs').existsSync('package-lock.json'))\"",
     "install-deps": "sh install-deps.sh",
-    "build": "tsc",
+    "build": "tsc --project tsconfig.worker.json",
     "build:worker": "tsc --project tsconfig.worker.json",
-    "deploy": "npm run build:worker && wrangler deploy",
+    "predeploy": "npm run build:worker",
+    "deploy": "wrangler deploy",
     "deploy:staging": "npm run build:worker && wrangler deploy --env staging",
     "dev:worker": "npm run build:worker && wrangler dev",
     "start": "node dist/main.js",
