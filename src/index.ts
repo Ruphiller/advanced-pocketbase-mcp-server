@@ -9023,7 +9023,7 @@ async function startServer() {
 }
 
 // Only start the server if this script is run directly (not imported)
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   // Legacy compatibility check - keep existing behavior for backward compatibility  
   if (process.env.HTTP_MODE === 'true' || process.env.PORT) {
     // Legacy HTTP/SSE mode
