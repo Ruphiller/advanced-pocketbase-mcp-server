@@ -16,7 +16,8 @@
   },
   "include": [
     "src/agent-simple.ts",
-    "src/worker.ts",
+    "src/durable-object.ts",
+    "src/worker-durable.ts",
     "src/main.ts",
     "src/services/**/*",
     "src/types/**/*"

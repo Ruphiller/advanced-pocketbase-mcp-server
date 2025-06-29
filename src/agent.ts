@@ -1375,15 +1375,18 @@ class PocketBaseMCPAgent {
     );
 
     // Bulk operations
-    this.server.registerTool(
+    this.server.tool(
       'bulk_import',
       {
-        title: 'Bulk Import Records',
         description: 'Import multiple records into a collection',
         inputSchema: {
-          collection: z.string().describe('Collection name'),
-          records: z.array(z.record(z.any())).describe('Array of record data'),
-          skipErrors: z.boolean().optional().describe('Continue on individual record errors')
+          type: 'object',
+          properties: {
+            collection: { type: 'string', description: 'Collection name' },
+            records: { type: 'array', items: { type: 'object' }, description: 'Array of record data' },
+            skipErrors: { type: 'boolean', description: 'Continue on individual record errors' }
+          },
+          required: ['collection', 'records']
         }
       },
       async ({ collection, records, skipErrors = false }) => {
@@ -1593,14 +1596,13 @@ class PocketBaseMCPAgent {
    */
   private setupResources(): void {
     // Collection schemas resource
-    this.server.registerResource(
+    this.server.resource(
       'collection_schema',
-      new ResourceTemplate('pocketbase://collections/{collection}/schema', { list: undefined }),
+      'pocketbase://collections/{collection}/schema',
       {
-        title: 'Collection Schema',
         description: 'Get the schema definition for a PocketBase collection'
       },
-      async (uri, { collection }) => {
+      async (uri: any, { collection }: any) => {
         await this.ensureInitialized();
         if (!this.pb) {
           throw new Error('PocketBase not initialized');
@@ -1622,14 +1624,13 @@ class PocketBaseMCPAgent {
     );
 
     // Database stats resource
-    this.server.registerResource(
+    this.server.resource(
       'database_stats',
       'pocketbase://stats',
       {
-        title: 'Database Statistics',
         description: 'Get database statistics and metrics'
       },
-      async (uri) => {
+      async (uri: any) => {
         await this.ensureInitialized();
         if (!this.pb) {
           return {
@@ -1672,14 +1673,13 @@ class PocketBaseMCPAgent {
     );
 
     // Agent status resource
-    this.server.registerResource(
+    this.server.resource(
       'agent_status',
       'agent://status',
       {
-        title: 'Agent Status',
         description: 'Get current agent status and configuration'
       },
-      async (uri) => {
+      async (uri: any) => {
         const status = {
           agent: {
             sessionId: this.state.sessionId,
@@ -1718,22 +1718,19 @@ class PocketBaseMCPAgent {
    * Setup prompt handlers
    */
   private setupPrompts(): void {
-    this.server.registerPrompt(
+    this.server.prompt(
       'setup_collection',
-      {
-        title: 'Setup Collection',
-        description: 'Interactive prompt to help set up a new PocketBase collection',
-        argsSchema: {
-          name: z.string().describe('Collection name'),
-          type: z.enum(['base', 'auth', 'view']).describe('Collection type')
-        }
-      },
-      ({ name, type }) => ({
-        messages: [{
-          role: 'assistant',
-          content: {
-            type: 'text',
-            text: `I'll help you set up a new ${type} collection named "${name}". 
+      'Interactive prompt to help set up a new PocketBase collection',
+      (extra: any) => {
+        const name = extra.arguments?.name || 'new_collection';
+        const type = extra.arguments?.type || 'base';
+        
+        return {
+          messages: [{
+            role: 'assistant',
+            content: {
+              type: 'text',
+              text: `I'll help you set up a new ${type} collection named "${name}". 
 
 For a ${type} collection, you'll typically need:
 
@@ -1753,27 +1750,25 @@ ${type === 'auth'
 }
 
 Would you like me to create this collection with a basic schema, or do you want to specify custom fields?`
-          }
-        }]
-      })
+            }
+          }]
+        };
+      }
     );
 
-    this.server.registerPrompt(
+    this.server.prompt(
       'troubleshoot_error',
-      {
-        title: 'Troubleshoot Error',
-        description: 'Help troubleshoot common PocketBase errors',
-        argsSchema: {
-          error: z.string().describe('Error message or description'),
-          operation: z.string().optional().describe('What operation were you trying to perform?')
-        }
-      },
-      ({ error, operation }) => ({
-        messages: [{
-          role: 'assistant',
-          content: {
-            type: 'text',
-            text: `I'll help you troubleshoot this PocketBase error:
+      'Help troubleshoot common PocketBase errors',
+      (extra: any) => {
+        const error = extra.arguments?.error || 'Unknown error';
+        const operation = extra.arguments?.operation || undefined;
+        
+        return {
+          messages: [{
+            role: 'assistant',
+            content: {
+              type: 'text',
+              text: `I'll help you troubleshoot this PocketBase error:
 
 **Error**: ${error}
 ${operation ? `**Operation**: ${operation}` : ''}
@@ -1787,9 +1782,10 @@ Let me provide some common solutions and debugging steps:
 5. **Authentication**: Ensure you're properly authenticated if required
 
 Would you like me to run a health check or validate your current configuration?`
-          }
-        }]
-      })
+            }
+          }]
+        };
+      }
     );
   }
 
@@ -1867,8 +1863,9 @@ async function main(): Promise<void> {
       break;
       
     case 'sse':
-      transport = new SSEServerTransport('/sse', null);
-      console.error(`Server running on SSE transport at http://${host}:${port}`);
+      // Note: SSE transport setup may need adjustment based on current SDK version
+      console.error('SSE transport not properly implemented in this version');
+      process.exit(1);
       break;
       
     case 'http':

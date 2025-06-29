@@ -7,10 +7,12 @@
     "install-deps": "sh install-deps.sh",
     "build": "tsc --project tsconfig.worker.json",
     "build:worker": "tsc --project tsconfig.worker.json",
-    "predeploy": "npm run build:worker",
+    "build:durable": "tsc --project tsconfig.worker.json",
+    "predeploy": "npm run build:durable",
     "deploy": "wrangler deploy",
-    "deploy:staging": "npm run build:worker && wrangler deploy --env staging",
-    "dev:worker": "npm run build:worker && wrangler dev",
+    "deploy:staging": "npm run build:durable && wrangler deploy --env staging",
+    "dev:worker": "npm run build:durable && wrangler dev",
+    "dev:durable": "npm run build:durable && wrangler dev --local",
     "start": "node dist/main.js",
     "start:stdio": "node dist/main.js --transport=stdio",
     "start:agent": "node dist/agent-simple.js",
@@ -49,6 +51,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250628.0",
     "@types/express": "^5.0.3",
     "@types/node": "^20.17.30",
     "@types/nodemailer": "^6.4.17",
