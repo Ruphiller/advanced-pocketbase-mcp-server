@@ -1,6 +1,6 @@
 # Smithery configuration file: https://smithery.ai/docs/build/project-config/smithery-yaml
 
-runtime: "typescript"
+runtime: "container"
 startCommand:
   type: "http"
   configSchema:
