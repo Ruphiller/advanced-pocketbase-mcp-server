@@ -27,6 +27,6 @@ new_sqlite_classes = ["PocketBaseMCPDurableObject"]
 # SENDGRID_API_KEY
 # SMTP_PASSWORD
 
-# Cron triggers for maintenance (optional)
-[[triggers.crons]]
-cron = "0 0 * * *"  # Daily at midnight
+# Cron triggers for maintenance (optional) - commented out for now
+# [[triggers.crons]]
+# cron = "0 0 * * *"  # Daily at midnight
