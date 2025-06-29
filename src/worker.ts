@@ -15,6 +15,13 @@ interface Env {
   DEFAULT_FROM_EMAIL?: string;
 }
 
+interface MCPRequest {
+  jsonrpc: string;
+  id: string | number;
+  method: string;
+  params?: any;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
     const url = new URL(request.url);
@@ -74,7 +81,7 @@ async function handleMCPRequest(request: Request, env: Env, ctx: any) {
     await agent.init();
 
     // Parse the MCP request
-    const body = await request.json();
+    const body = await request.json() as MCPRequest;
     
     // Handle common MCP methods
     switch (body.method) {
