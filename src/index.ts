@@ -2709,6 +2709,86 @@ Describe your campaign goals, target audience, and desired email sequence.`
     
     console.error('[MCP DEBUG] After registering test_tool');
     
+    // Add a fast health check that responds immediately for Smithery discovery
+    this.server.tool(
+      'health_check',
+      {},
+      async () => {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              status: 'healthy',
+              server: 'pocketbase-server',
+              version: '0.1.0',
+              timestamp: new Date().toISOString()
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
+    // Add tool discovery endpoint that works without PocketBase initialization
+    this.server.tool(
+      'discover_tools',
+      {},
+      async () => {
+        const availableTools = [
+          'health_check',
+          'discover_tools',
+          'test_tool',
+          'get_server_info',
+          'get_auth_info', 
+          'list_collections',
+          'create_record',
+          'update_record',
+          'delete_record',
+          'list_records',
+          'get_record',
+          'authenticate_user',
+          'get_collection_schema',
+          'create_collection',
+          'update_collection',
+          'delete_collection',
+          'manage_indexes',
+          'import_data',
+          'export_data',
+          'backup_database',
+          'list_auth_methods',
+          'authenticate_with_oauth2',
+          'auth_refresh',
+          'request_verification',
+          'confirm_verification',
+          'request_password_reset',
+          'confirm_password_reset',
+          'request_email_change',
+          'confirm_email_change',
+          'stream_collection_changes'
+        ];
+        
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              server: 'pocketbase-server',
+              version: '0.1.0', 
+              description: 'Advanced PocketBase MCP Server with comprehensive database operations',
+              totalTools: availableTools.length,
+              tools: availableTools,
+              capabilities: {
+                collections: true,
+                records: true,
+                authentication: true,
+                realtime: true,
+                backup: true,
+                import_export: true
+              }
+            }, null, 2)
+          }]
+        };
+      }
+    );
+    
     // Try to access tools through the server's API
     try {
       // @ts-ignore - Using internal API for debugging
