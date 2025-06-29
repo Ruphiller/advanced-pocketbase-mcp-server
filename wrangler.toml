@@ -11,6 +11,11 @@ command = "npm run build:worker"
 name = "POCKETBASE_MCP_DO"
 class_name = "PocketBaseMCPDurableObject"
 
+# Durable Objects migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["PocketBaseMCPDurableObject"]
+
 # Environment variables (configure these in your Cloudflare dashboard)
 [vars]
 # POCKETBASE_URL = "https://your-pocketbase-instance.com"
