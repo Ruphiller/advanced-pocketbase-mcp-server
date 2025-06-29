@@ -4,6 +4,7 @@ node_modules/
 # Build output
 build/
 dist/
+!dist/worker.js
 
 # Environment variables
 .env
