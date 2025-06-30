@@ -590,7 +590,7 @@ export class ComprehensivePocketBaseMCPAgent {
         properties: {
           id: { type: 'string', description: 'Collection ID' },
           name: { type: 'string', description: 'Collection name' },
-          schema: { type: 'array', description: 'Updated schema fields' },
+          schema: { type: 'array', items: { type: 'object' }, description: 'Updated schema fields' },
           options: { type: 'object', description: 'Collection options' }
         },
         required: ['id']
@@ -682,7 +682,7 @@ export class ComprehensivePocketBaseMCPAgent {
         type: 'object',
         properties: {
           collection: { type: 'string', description: 'Collection name' },
-          records: { type: 'array', description: 'Array of record data objects' }
+          records: { type: 'array', items: { type: 'object' }, description: 'Array of record data objects' }
         },
         required: ['collection', 'records']
       },
