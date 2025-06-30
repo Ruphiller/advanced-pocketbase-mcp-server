@@ -10,7 +10,7 @@
 
 /// <reference types="@cloudflare/workers-types" />
 
-import { PocketBaseMCPAgent } from './agent-simple.js';
+import { ComprehensivePocketBaseMCPAgent } from './agent-comprehensive.js';
 import PocketBase from 'pocketbase';
 
 // Define types for Cloudflare Workers environment
@@ -38,7 +38,7 @@ export interface AgentState {
 }
 
 export class PocketBaseMCPDurableObject {
-  private agent: PocketBaseMCPAgent | null = null;
+  private agent: ComprehensivePocketBaseMCPAgent | null = null;
   private state: DurableObjectState;
   private env: Env;
   private sessions: Map<string, WebSocket> = new Map(); // WebSocket sessions
@@ -55,7 +55,7 @@ export class PocketBaseMCPDurableObject {
   /**
    * Initialize the MCP agent with persistent state
    */
-  private async initializeAgent(): Promise<PocketBaseMCPAgent> {
+  private async initializeAgent(): Promise<ComprehensivePocketBaseMCPAgent> {
     if (this.agent) {
       return this.agent;
     }
@@ -64,7 +64,7 @@ export class PocketBaseMCPDurableObject {
     const storedState = await this.state.storage.get('agentState') as AgentState;
     
     // Create agent with restored state
-    this.agent = new PocketBaseMCPAgent(storedState);
+    this.agent = new ComprehensivePocketBaseMCPAgent();
     
     // Initialize with environment configuration
     const config = {
@@ -590,7 +590,7 @@ export class PocketBaseMCPDurableObject {
         id: this.state.id.toString(),
         lastActivity: new Date(this.lastActivity).toISOString(),
         activeSessions: this.sessions.size,
-        shouldHibernate: agent.shouldHibernate()
+        shouldHibernate: false // Comprehensive agent handles its own state
       },
       agent: agent.getState()
     };
@@ -774,7 +774,7 @@ export class PocketBaseMCPDurableObject {
    */
   private async handleWake(): Promise<Response> {
     if (this.agent) {
-      await this.agent.wakeUp();
+      // Agent is now awake - no specific wakeUp method needed
     }
     this.lastActivity = Date.now();
     
@@ -798,7 +798,7 @@ export class PocketBaseMCPDurableObject {
 
     // Clean up agent resources
     if (this.agent) {
-      await this.agent.cleanup();
+      // Cleanup resources - no specific cleanup method needed
       this.agent = null;
     }
 

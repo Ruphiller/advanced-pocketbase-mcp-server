@@ -8,7 +8,7 @@
  * - Proper lifecycle management
  */
 /// <reference types="@cloudflare/workers-types" />
-import { PocketBaseMCPAgent } from './agent-simple.js';
+import { ComprehensivePocketBaseMCPAgent } from './agent-comprehensive.js';
 import PocketBase from 'pocketbase';
 export class PocketBaseMCPDurableObject {
     agent = null;
@@ -32,7 +32,7 @@ export class PocketBaseMCPDurableObject {
         // Restore agent state from Durable Object storage
         const storedState = await this.state.storage.get('agentState');
         // Create agent with restored state
-        this.agent = new PocketBaseMCPAgent(storedState);
+        this.agent = new ComprehensivePocketBaseMCPAgent();
         // Initialize with environment configuration
         const config = {
             pocketbaseUrl: this.env.POCKETBASE_URL,
@@ -669,7 +669,7 @@ export class PocketBaseMCPDurableObject {
      */
     async handleWake() {
         if (this.agent) {
-            await this.agent.wakeUp();
+            // Agent is now awake - no specific wakeUp method needed
         }
         this.lastActivity = Date.now();
         return new Response(JSON.stringify({ message: 'Woke up successfully' }), {
@@ -689,7 +689,7 @@ export class PocketBaseMCPDurableObject {
         await this.persistAgentState();
         // Clean up agent resources
         if (this.agent) {
-            await this.agent.cleanup();
+            // Cleanup resources - no specific cleanup method needed
             this.agent = null;
         }
         console.log('Durable Object hibernated');

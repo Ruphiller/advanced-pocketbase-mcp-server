@@ -449,6 +449,21 @@ class PocketBaseMCPAgent {
                 throw new Error(`Failed to create record: ${error.message}`);
             }
         });
+        // Test tool (always available)
+        this.server.tool('test_tool', {
+            description: 'A simple test tool that always works to verify tool registration'
+        }, async () => {
+            return {
+                content: [{
+                        type: 'text',
+                        text: JSON.stringify({
+                            message: 'Test tool working!',
+                            timestamp: new Date().toISOString(),
+                            totalRegisteredTools: 'This should increase the count if registration works'
+                        }, null, 2)
+                    }]
+            };
+        });
         // Always register all tools (lazy loading approach)
         this.setupStripeTools();
         this.setupEmailTools();
@@ -457,17 +472,25 @@ class PocketBaseMCPAgent {
      * Setup Stripe-related tools
      */
     setupStripeTools() {
-        this.server.tool('create_stripe_customer', {
-            description: 'Create a new customer in Stripe',
-            inputSchema: {
-                email: z.string().email().describe('Customer email'),
-                name: z.string().optional().describe('Customer name')
-            }
+        this.server.tool('create_stripe_customer', 'Create a new customer in Stripe', {
+            type: 'object',
+            properties: {
+                email: { type: 'string', format: 'email', description: 'Customer email' },
+                name: { type: 'string', description: 'Customer name' }
+            },
+            required: ['email']
         }, async ({ email, name }) => {
             // Lazy load Stripe service
             await this.ensureStripeService();
             if (!this.stripeService) {
-                throw new Error('Stripe service not available. Please set STRIPE_SECRET_KEY environment variable.');
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                error: 'Stripe service not available. Please set STRIPE_SECRET_KEY environment variable.'
+                            })
+                        }]
+                };
             }
             try {
                 const customer = await this.stripeService.createCustomer({ email, name });
@@ -479,21 +502,36 @@ class PocketBaseMCPAgent {
                 };
             }
             catch (error) {
-                throw new Error(`Failed to create Stripe customer: ${error.message}`);
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                error: `Failed to create Stripe customer: ${error.message}`
+                            })
+                        }]
+                };
             }
         });
-        this.server.tool('create_stripe_payment_intent', {
-            description: 'Create a Stripe payment intent for processing payments',
-            inputSchema: {
-                amount: z.number().int().positive().describe('Amount in cents (e.g., 2000 for $20.00)'),
-                currency: z.string().length(3).describe('Three-letter currency code (e.g., USD)'),
-                description: z.string().optional().describe('Optional description for the payment')
-            }
+        this.server.tool('create_stripe_payment_intent', 'Create a Stripe payment intent for processing payments', {
+            type: 'object',
+            properties: {
+                amount: { type: 'number', description: 'Amount in cents (e.g., 2000 for $20.00)' },
+                currency: { type: 'string', description: 'Three-letter currency code (e.g., USD)' },
+                description: { type: 'string', description: 'Optional description for the payment' }
+            },
+            required: ['amount', 'currency']
         }, async ({ amount, currency, description }) => {
             // Lazy load Stripe service
             await this.ensureStripeService();
             if (!this.stripeService) {
-                throw new Error('Stripe service not available. Please set STRIPE_SECRET_KEY environment variable.');
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                error: 'Stripe service not available. Please set STRIPE_SECRET_KEY environment variable.'
+                            })
+                        }]
+                };
             }
             try {
                 const paymentIntent = await this.stripeService.createPaymentIntent({
@@ -515,7 +553,14 @@ class PocketBaseMCPAgent {
                 };
             }
             catch (error) {
-                throw new Error(`Failed to create payment intent: ${error.message}`);
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                error: `Failed to create payment intent: ${error.message}`
+                            })
+                        }]
+                };
             }
         });
         this.server.tool('create_stripe_product', {
