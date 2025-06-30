@@ -40,6 +40,9 @@ export interface AgentState {
 export class PocketBaseMCPDurableObject {
   private agent: WorkerCompatiblePocketBaseMCPAgent | null = null;
   private pb: PocketBase | null = null;
+  private pbInitialized: boolean = false;
+  private pbLastAuth: number = 0;
+  private pbAuthValid: boolean = false;
   private state: DurableObjectState;
   private env: Env;
   private sessions: Map<string, WebSocket> = new Map(); // WebSocket sessions
@@ -825,29 +828,81 @@ export class PocketBaseMCPDurableObject {
   }
 
   /**
-   * Get or create PocketBase instance
+   * Get or create PocketBase instance with proper session management
    */
   private async getPocketBaseInstance(): Promise<PocketBase | null> {
     if (!this.env.POCKETBASE_URL) {
+      console.warn('POCKETBASE_URL not configured');
       return null;
     }
 
-    const pb = new PocketBase(this.env.POCKETBASE_URL);
+    // Create new instance if needed
+    if (!this.pb) {
+      console.log('Creating new PocketBase instance:', this.env.POCKETBASE_URL);
+      this.pb = new PocketBase(this.env.POCKETBASE_URL);
+      this.pbInitialized = false;
+      this.pbAuthValid = false;
+    }
 
-    // Authenticate if credentials are available
-    if (this.env.POCKETBASE_ADMIN_EMAIL && this.env.POCKETBASE_ADMIN_PASSWORD) {
-      try {
-        await pb.collection('_superusers').authWithPassword(
-          this.env.POCKETBASE_ADMIN_EMAIL,
-          this.env.POCKETBASE_ADMIN_PASSWORD
-        );
-      } catch (error) {
-        console.warn('PocketBase authentication failed:', error);
-        // Continue without authentication
+    // Check if we need to re-authenticate (every 30 minutes)
+    const now = Date.now();
+    const authAge = now - this.pbLastAuth;
+    const thirtyMinutes = 30 * 60 * 1000;
+
+    if (!this.pbAuthValid || authAge > thirtyMinutes) {
+      console.log('Authenticating with PocketBase...');
+      
+      // Authenticate if credentials are available
+      if (this.env.POCKETBASE_ADMIN_EMAIL && this.env.POCKETBASE_ADMIN_PASSWORD) {
+        try {
+          await this.pb.collection('_superusers').authWithPassword(
+            this.env.POCKETBASE_ADMIN_EMAIL,
+            this.env.POCKETBASE_ADMIN_PASSWORD
+          );
+          
+          this.pbLastAuth = now;
+          this.pbAuthValid = true;
+          this.pbInitialized = true;
+          
+          console.log('PocketBase authentication successful');
+        } catch (error: any) {
+          console.error('PocketBase authentication failed:', error.message);
+          this.pbAuthValid = false;
+          
+          // If auth fails, try without authentication for public operations
+          console.log('Continuing without authentication for public operations only');
+        }
+      } else {
+        console.log('No admin credentials provided, using unauthenticated access');
+        this.pbAuthValid = false;
+        this.pbInitialized = true;
       }
     }
 
-    return pb;
+    // Test connection with a simple operation
+    if (this.pbInitialized) {
+      try {
+        // Try to fetch server health - this should work even without auth
+        await this.pb.health.check();
+        console.log('PocketBase connection verified');
+      } catch (error: any) {
+        console.error('PocketBase connection test failed:', error.message);
+        
+        // Reset the instance and try to reconnect
+        this.pb = null;
+        this.pbInitialized = false;
+        this.pbAuthValid = false;
+        
+        // Recursive call to try again (only once)
+        if (authAge < thirtyMinutes) {
+          return await this.getPocketBaseInstance();
+        }
+        
+        return null;
+      }
+    }
+
+    return this.pb;
   }
 
   /**
