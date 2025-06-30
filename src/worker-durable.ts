@@ -25,6 +25,7 @@ export default {
         case '/health':
           return handleGlobalHealth(env);
         
+        case '/sse':
         case '/mcp':
         case '/ws':
         case '/status':
@@ -58,6 +59,7 @@ function handleRoot(): Response {
     description: 'Model Context Protocol server for PocketBase with Durable Object support',
     endpoints: {
       health: '/health',
+      sse: '/sse',
       mcp: '/mcp',
       websocket: '/ws',
       status: '/status'

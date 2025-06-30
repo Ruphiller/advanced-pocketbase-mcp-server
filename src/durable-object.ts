@@ -109,6 +109,9 @@ export class PocketBaseMCPDurableObject {
 
       // Handle HTTP requests
       switch (path) {
+        case '/sse':
+          return this.handleSSE(request);
+        
         case '/health':
           return this.handleHealth();
         
@@ -246,6 +249,83 @@ export class PocketBaseMCPDurableObject {
     return new Response(JSON.stringify(response), {
       headers: { 'Content-Type': 'application/json' }
     });
+  }
+
+  /**
+   * Handle Server-Sent Events (SSE) for MCP connections
+   */
+  private async handleSSE(request: Request): Promise<Response> {
+    // Initialize agent if needed
+    const agent = await this.initializeAgent();
+    
+    // Update activity
+    this.lastActivity = Date.now();
+    
+    // For Cloudflare Workers, we need to create a streaming response
+    // This is a basic implementation - in production you'd want more sophisticated handling
+    
+    const headers = new Headers({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+    });
+
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers });
+    }
+
+    if (request.method !== 'GET' && request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    // Create a simple SSE stream that sends initial connection data
+    const stream = new ReadableStream({
+      start(controller) {
+        // Send initial connection event
+        const initData = {
+          type: 'connection',
+          data: {
+            server: 'PocketBase MCP Server',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            capabilities: ['pocketbase', 'stripe', 'email', 'database']
+          }
+        };
+        
+        const message = `data: ${JSON.stringify(initData)}\n\n`;
+        controller.enqueue(new TextEncoder().encode(message));
+        
+        // Send periodic heartbeat
+        const heartbeatInterval = setInterval(() => {
+          try {
+            const heartbeat = `data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`;
+            controller.enqueue(new TextEncoder().encode(heartbeat));
+          } catch (error) {
+            console.error('SSE heartbeat error:', error);
+            clearInterval(heartbeatInterval);
+            controller.close();
+          }
+        }, 30000); // Every 30 seconds
+
+        // Clean up on close
+        const cleanup = () => {
+          clearInterval(heartbeatInterval);
+        };
+
+        // Note: In a real implementation, you'd handle client disconnection
+        // and proper cleanup. This is a simplified version.
+        setTimeout(() => {
+          cleanup();
+          controller.close();
+        }, 300000); // Close after 5 minutes for demo
+      }
+    });
+
+    return new Response(stream, { headers });
   }
 
   /**
