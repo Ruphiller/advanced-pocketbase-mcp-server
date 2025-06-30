@@ -435,7 +435,7 @@ export class PocketBaseMCPAgentBestPractices extends Agent {
         this.server.tool('stripe_create_product', 'Create a new product in Stripe for selling', {
             name: z.string().describe('Product name'),
             description: z.string().optional().describe('Product description'),
-            price: StripeAmountSchema.optional().describe('Price in cents'),
+            price: StripeAmountSchema.describe('Price in cents'),
             currency: CurrencyCodeSchema.optional().describe('Currency code'),
             interval: z.enum(['month', 'year', 'week', 'day']).optional().describe('Billing interval for subscriptions')
         }, async ({ name, description, price, currency, interval }) => {
@@ -468,9 +468,8 @@ export class PocketBaseMCPAgentBestPractices extends Agent {
         this.server.tool('stripe_create_customer', 'Create a new customer in Stripe', {
             email: EmailAddressSchema,
             name: z.string().optional().describe('Customer name'),
-            phone: z.string().optional().describe('Customer phone number'),
             metadata: z.record(z.string()).optional().describe('Custom metadata')
-        }, async ({ email, name, phone, metadata }) => {
+        }, async ({ email, name, metadata }) => {
             try {
                 if (!this.stripeService) {
                     return this.createErrorResponse('Stripe service not available');
@@ -478,7 +477,6 @@ export class PocketBaseMCPAgentBestPractices extends Agent {
                 const customer = await this.stripeService.createCustomer({
                     email,
                     name,
-                    phone,
                     metadata
                 });
                 return {
@@ -523,9 +521,8 @@ export class PocketBaseMCPAgentBestPractices extends Agent {
             customerId: z.string().describe('Stripe customer ID'),
             email: EmailAddressSchema.optional(),
             name: z.string().optional().describe('Customer name'),
-            phone: z.string().optional().describe('Customer phone number'),
             metadata: z.record(z.string()).optional().describe('Custom metadata')
-        }, async ({ customerId, email, name, phone, metadata }) => {
+        }, async ({ customerId, email, name, metadata }) => {
             try {
                 if (!this.stripeService) {
                     return this.createErrorResponse('Stripe service not available');
@@ -533,7 +530,6 @@ export class PocketBaseMCPAgentBestPractices extends Agent {
                 const customer = await this.stripeService.updateCustomer(customerId, {
                     email,
                     name,
-                    phone,
                     metadata
                 });
                 return {
@@ -599,7 +595,7 @@ export class PocketBaseMCPAgentBestPractices extends Agent {
                             text: JSON.stringify({
                                 success: true,
                                 session: {
-                                    id: session.id,
+                                    id: session.sessionId,
                                     url: session.url
                                 }
                             }, null, 2)
@@ -612,16 +608,14 @@ export class PocketBaseMCPAgentBestPractices extends Agent {
         });
         // Create Payment Method
         this.server.tool('stripe_create_payment_method', 'Create a new payment method in Stripe', {
-            type: z.enum(['card', 'us_bank_account', 'sepa_debit']).describe('Payment method type'),
-            customerId: z.string().optional().describe('Customer to attach to')
-        }, async ({ type, customerId }) => {
+            type: z.enum(['card', 'us_bank_account', 'sepa_debit']).describe('Payment method type')
+        }, async ({ type }) => {
             try {
                 if (!this.stripeService) {
                     return this.createErrorResponse('Stripe service not available');
                 }
                 const paymentMethod = await this.stripeService.createPaymentMethod({
-                    type,
-                    customerId
+                    type
                 });
                 return {
                     content: [{
@@ -699,8 +693,10 @@ export class PocketBaseMCPAgentBestPractices extends Agent {
                     return this.createErrorResponse('Stripe service not available');
                 }
                 const paymentLink = await this.stripeService.createPaymentLink({
-                    priceId,
-                    quantity,
+                    lineItems: [{
+                            price: priceId,
+                            quantity: quantity || 1
+                        }],
                     metadata
                 });
                 return {
