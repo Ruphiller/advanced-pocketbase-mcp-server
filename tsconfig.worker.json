@@ -16,8 +16,11 @@
   },
   "include": [
     "src/agent-simple.ts",
+    "src/agent-best-practices.ts",
+    "src/agent-cloudflare.ts",
     "src/durable-object.ts",
     "src/worker-durable.ts",
+    "src/worker-best-practices.ts",
     "src/main.ts",
     "src/services/**/*",
     "src/types/**/*"
