@@ -149,5 +149,14 @@ export declare class PocketBaseMCPDurableObject {
      * Check if PocketBase is in read-only mode by testing write operations
      */
     private checkPocketBaseWritePermissions;
+    /**
+     * Analyze PocketBase operation capabilities and restrictions
+     */
+    private analyzePocketBaseCapabilities;
+    /**
+     * Authenticate as super admin with provided credentials
+     * This enables admin-level operations in the current session
+     */
+    private pocketBaseSuperAdminAuth;
 }
 export default PocketBaseMCPDurableObject;

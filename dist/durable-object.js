@@ -268,6 +268,10 @@ export class PocketBaseMCPDurableObject {
                     return await this.debugPocketBaseAuth();
                 case 'check_pocketbase_write_permissions':
                     return await this.checkPocketBaseWritePermissions();
+                case 'analyze_pocketbase_capabilities':
+                    return await this.analyzePocketBaseCapabilities();
+                case 'pocketbase_super_admin_auth':
+                    return await this.pocketBaseSuperAdminAuth(args.email, args.password);
                 // PocketBase tools that require direct implementation
                 case 'pocketbase_list_collections':
                     return await this.toolListCollections();
@@ -1060,7 +1064,8 @@ export class PocketBaseMCPDurableObject {
             { name: 'get_server_status', description: 'Get comprehensive server status and configuration', inputSchema: { type: 'object', properties: {} } },
             { name: 'health_check', description: 'Simple health check endpoint', inputSchema: { type: 'object', properties: {} } },
             { name: 'debug_pocketbase_auth', description: 'Run comprehensive PocketBase authentication and connection debugging', inputSchema: { type: 'object', properties: {} } },
-            { name: 'check_pocketbase_write_permissions', description: 'Test PocketBase write operations to diagnose read-only mode issues', inputSchema: { type: 'object', properties: {} } }
+            { name: 'check_pocketbase_write_permissions', description: 'Test PocketBase write operations to diagnose read-only mode issues', inputSchema: { type: 'object', properties: {} } },
+            { name: 'analyze_pocketbase_capabilities', description: 'Analyze and document available vs restricted PocketBase operations', inputSchema: { type: 'object', properties: {} } }
         ];
         return toolDefinitions;
     }
@@ -1479,6 +1484,378 @@ export class PocketBaseMCPDurableObject {
             success: true,
             ...result
         };
+    }
+    /**
+     * Analyze PocketBase operation capabilities and restrictions
+     */
+    async analyzePocketBaseCapabilities() {
+        console.log('=== PocketBase Capabilities Analysis ===');
+        const analysis = {
+            timestamp: new Date().toISOString(),
+            serverType: 'Remote MCP Server',
+            securityLevel: 'Production',
+            capabilities: {
+                dataOperations: {
+                    available: [],
+                    restricted: []
+                },
+                adminOperations: {
+                    available: [],
+                    restricted: []
+                },
+                authOperations: {
+                    available: [],
+                    restricted: []
+                }
+            },
+            tests: {
+                basicConnection: null,
+                dataOperations: null,
+                adminOperations: null
+            },
+            recommendations: []
+        };
+        try {
+            const pb = await this.getPocketBaseInstance();
+            if (!pb) {
+                return { success: false, error: 'PocketBase instance not available' };
+            }
+            // Test 1: Basic connection
+            console.log('Testing basic connection...');
+            try {
+                await pb.health.check();
+                analysis.tests.basicConnection = { success: true };
+                console.log('✅ Basic connection works');
+            }
+            catch (error) {
+                analysis.tests.basicConnection = { success: false, error: error.message };
+                return analysis;
+            }
+            // Test 2: Data operations
+            console.log('Testing data operations...');
+            const dataTests = {
+                listCollections: null,
+                listRecords: null,
+                createRecord: null,
+                readRecord: null,
+                updateRecord: null,
+                deleteRecord: null
+            };
+            // List collections (should work)
+            try {
+                const collections = await pb.collections.getFullList(5);
+                dataTests.listCollections = { success: true, count: collections.length };
+                analysis.capabilities.dataOperations.available.push('List Collections');
+                console.log('✅ List collections works');
+                // Find a test collection
+                const testCollection = collections.find(c => c.name.toLowerCase().includes('test') ||
+                    c.name.toLowerCase().includes('demo') ||
+                    c.name === 'users' ||
+                    c.type === 'base');
+                if (testCollection) {
+                    console.log(`Testing with collection: ${testCollection.name}`);
+                    // Test listing records
+                    try {
+                        const records = await pb.collection(testCollection.name).getList(1, 5);
+                        dataTests.listRecords = { success: true, collection: testCollection.name };
+                        analysis.capabilities.dataOperations.available.push('List Records');
+                        console.log('✅ List records works');
+                        // Test creating a record
+                        try {
+                            const testData = { name: 'Test ' + Date.now() };
+                            const record = await pb.collection(testCollection.name).create(testData);
+                            dataTests.createRecord = { success: true, recordId: record.id };
+                            analysis.capabilities.dataOperations.available.push('Create Records');
+                            console.log('✅ Create record works');
+                            // Test reading the record
+                            try {
+                                const readRecord = await pb.collection(testCollection.name).getOne(record.id);
+                                dataTests.readRecord = { success: true };
+                                analysis.capabilities.dataOperations.available.push('Read Records');
+                                console.log('✅ Read record works');
+                            }
+                            catch (error) {
+                                dataTests.readRecord = { success: false, error: error.message };
+                                analysis.capabilities.dataOperations.restricted.push('Read Records');
+                            }
+                            // Test updating the record
+                            try {
+                                await pb.collection(testCollection.name).update(record.id, { name: 'Updated ' + Date.now() });
+                                dataTests.updateRecord = { success: true };
+                                analysis.capabilities.dataOperations.available.push('Update Records');
+                                console.log('✅ Update record works');
+                            }
+                            catch (error) {
+                                dataTests.updateRecord = { success: false, error: error.message };
+                                analysis.capabilities.dataOperations.restricted.push('Update Records');
+                            }
+                            // Test deleting the record
+                            try {
+                                await pb.collection(testCollection.name).delete(record.id);
+                                dataTests.deleteRecord = { success: true };
+                                analysis.capabilities.dataOperations.available.push('Delete Records');
+                                console.log('✅ Delete record works');
+                            }
+                            catch (error) {
+                                dataTests.deleteRecord = { success: false, error: error.message };
+                                analysis.capabilities.dataOperations.restricted.push('Delete Records');
+                            }
+                        }
+                        catch (error) {
+                            dataTests.createRecord = { success: false, error: error.message };
+                            analysis.capabilities.dataOperations.restricted.push('Create Records');
+                        }
+                    }
+                    catch (error) {
+                        dataTests.listRecords = { success: false, error: error.message };
+                        analysis.capabilities.dataOperations.restricted.push('List Records');
+                    }
+                }
+            }
+            catch (error) {
+                dataTests.listCollections = { success: false, error: error.message };
+                analysis.capabilities.dataOperations.restricted.push('List Collections');
+            }
+            analysis.tests.dataOperations = dataTests;
+            // Test 3: Admin operations
+            console.log('Testing admin operations...');
+            const adminTests = {
+                authenticate: null,
+                createCollection: null,
+                updateCollection: null,
+                deleteCollection: null
+            };
+            // Test authentication
+            if (this.env.POCKETBASE_ADMIN_EMAIL && this.env.POCKETBASE_ADMIN_PASSWORD) {
+                try {
+                    const freshPb = new PocketBase(this.env.POCKETBASE_URL);
+                    await freshPb.collection('_superusers').authWithPassword(this.env.POCKETBASE_ADMIN_EMAIL, this.env.POCKETBASE_ADMIN_PASSWORD);
+                    adminTests.authenticate = { success: true };
+                    analysis.capabilities.authOperations.available.push('Admin Authentication');
+                    console.log('✅ Admin authentication works');
+                }
+                catch (error) {
+                    adminTests.authenticate = { success: false, error: error.message };
+                    analysis.capabilities.authOperations.restricted.push('Admin Authentication');
+                    console.log('❌ Admin authentication restricted');
+                }
+            }
+            else {
+                adminTests.authenticate = { success: false, error: 'No admin credentials provided' };
+                analysis.capabilities.authOperations.restricted.push('Admin Authentication (No Credentials)');
+            }
+            // Test collection management (these will likely fail in a restricted environment)
+            try {
+                const testCollectionSchema = {
+                    name: 'mcp_test_' + Date.now(),
+                    type: 'base',
+                    schema: [
+                        {
+                            name: 'title',
+                            type: 'text',
+                            required: true
+                        }
+                    ]
+                };
+                await pb.collections.create(testCollectionSchema);
+                adminTests.createCollection = { success: true };
+                analysis.capabilities.adminOperations.available.push('Create Collections');
+                console.log('✅ Create collection works');
+            }
+            catch (error) {
+                adminTests.createCollection = { success: false, error: error.message };
+                analysis.capabilities.adminOperations.restricted.push('Create Collections');
+                console.log('❌ Create collection restricted');
+            }
+            analysis.tests.adminOperations = adminTests;
+            // Generate recommendations based on findings
+            if (analysis.capabilities.dataOperations.available.length > 0) {
+                analysis.recommendations.push('✅ Data operations are available - you can work with records in existing collections');
+            }
+            if (analysis.capabilities.adminOperations.restricted.length > 0) {
+                analysis.recommendations.push('⚠️ Admin operations are restricted - this is a security feature in production environments');
+                analysis.recommendations.push('💡 Use the PocketBase admin UI for schema changes and administrative tasks');
+                analysis.recommendations.push('🔧 Focus on data operations: create, read, update, delete records');
+            }
+            if (analysis.capabilities.authOperations.restricted.length > 0) {
+                analysis.recommendations.push('🔐 Authentication operations are restricted - use pre-configured authentication in your app');
+            }
+            // Determine overall security profile
+            const restrictedCount = analysis.capabilities.adminOperations.restricted.length +
+                analysis.capabilities.authOperations.restricted.length;
+            if (restrictedCount > 3) {
+                analysis.securityLevel = 'High Security (Production)';
+                analysis.recommendations.push('🛡️ This server is configured for production use with restricted admin access');
+            }
+            else if (restrictedCount > 0) {
+                analysis.securityLevel = 'Medium Security (Staging)';
+            }
+            else {
+                analysis.securityLevel = 'Low Security (Development)';
+            }
+        }
+        catch (error) {
+            return {
+                success: false,
+                error: error.message,
+                timestamp: new Date().toISOString()
+            };
+        }
+        console.log('=== Capabilities Analysis Complete ===');
+        return {
+            success: true,
+            ...analysis
+        };
+    }
+    /**
+     * Authenticate as super admin with provided credentials
+     * This enables admin-level operations in the current session
+     */
+    async pocketBaseSuperAdminAuth(email, password) {
+        console.log('=== PocketBase Super Admin Authentication ===');
+        const response = {
+            timestamp: new Date().toISOString(),
+            success: false,
+            operation: 'super_admin_auth',
+            message: '',
+            details: {
+                credentialsSource: 'none',
+                authenticationAttempted: false,
+                sessionUpdated: false,
+                previousAuth: {
+                    wasAuthenticated: this.pbAuthValid,
+                    lastAuthTime: this.pbLastAuth ? new Date(this.pbLastAuth).toISOString() : null,
+                    authAge: this.pbLastAuth ? Date.now() - this.pbLastAuth : null
+                }
+            },
+            capabilities: {
+                beforeAuth: [],
+                afterAuth: []
+            },
+            hint: ''
+        };
+        // Determine credentials to use
+        const adminEmail = email || this.env.POCKETBASE_ADMIN_EMAIL;
+        const adminPassword = password || this.env.POCKETBASE_ADMIN_PASSWORD;
+        if (!adminEmail || !adminPassword) {
+            response.message = 'Admin credentials not available';
+            response.hint = 'Provide email and password parameters, or set POCKETBASE_ADMIN_EMAIL and POCKETBASE_ADMIN_PASSWORD environment variables';
+            response.details.credentialsSource = 'missing';
+            return response;
+        }
+        if (email && password) {
+            response.details.credentialsSource = 'provided_parameters';
+        }
+        else {
+            response.details.credentialsSource = 'environment_variables';
+        }
+        if (!this.env.POCKETBASE_URL) {
+            response.message = 'PocketBase URL not configured';
+            response.hint = 'Set POCKETBASE_URL environment variable';
+            return response;
+        }
+        try {
+            // Test capabilities before authentication
+            console.log('Testing capabilities before authentication...');
+            try {
+                const pb = new PocketBase(this.env.POCKETBASE_URL);
+                const collections = await pb.collections.getFullList(3);
+                response.capabilities.beforeAuth.push(`List Collections (${collections.length} found)`);
+            }
+            catch (error) {
+                response.capabilities.beforeAuth.push(`List Collections: FAILED (${error.message})`);
+            }
+            // Attempt super admin authentication
+            console.log('Attempting super admin authentication...');
+            response.details.authenticationAttempted = true;
+            const pb = new PocketBase(this.env.POCKETBASE_URL);
+            try {
+                // Authenticate as super admin using the _superusers collection
+                const authData = await pb.collection('_superusers').authWithPassword(adminEmail, adminPassword);
+                console.log('✅ Super admin authentication successful');
+                response.success = true;
+                response.message = 'Successfully authenticated as super admin';
+                // Update our internal PocketBase instance with the authenticated session
+                this.pb = pb;
+                this.pbInitialized = true;
+                this.pbAuthValid = true;
+                this.pbLastAuth = Date.now();
+                response.details.sessionUpdated = true;
+                console.log('✅ Internal session updated with admin authentication');
+                // Test enhanced capabilities after authentication
+                console.log('Testing enhanced capabilities after authentication...');
+                try {
+                    const collections = await pb.collections.getFullList();
+                    response.capabilities.afterAuth.push(`List Collections (${collections.length} found)`);
+                }
+                catch (error) {
+                    response.capabilities.afterAuth.push(`List Collections: FAILED (${error.message})`);
+                }
+                try {
+                    // Try to create a test collection to verify admin privileges
+                    const testCollectionName = 'mcp_admin_test_' + Date.now();
+                    await pb.collections.create({
+                        name: testCollectionName,
+                        type: 'base',
+                        schema: [
+                            {
+                                name: 'test_field',
+                                type: 'text',
+                                required: false
+                            }
+                        ]
+                    });
+                    response.capabilities.afterAuth.push('Create Collections: SUCCESS');
+                    console.log('✅ Collection creation test passed');
+                    // Clean up test collection
+                    try {
+                        await pb.collections.delete(testCollectionName);
+                        response.capabilities.afterAuth.push('Delete Collections: SUCCESS');
+                        console.log('✅ Collection deletion test passed');
+                    }
+                    catch (error) {
+                        response.capabilities.afterAuth.push(`Delete Collections: PARTIAL (${error.message})`);
+                    }
+                }
+                catch (error) {
+                    response.capabilities.afterAuth.push(`Create Collections: FAILED (${error.message})`);
+                    console.log(`❌ Collection creation test failed: ${error.message}`);
+                }
+                // Test user management
+                try {
+                    const users = await pb.collection('_superusers').getFullList(5);
+                    response.capabilities.afterAuth.push(`Manage Admin Users (${users.length} found)`);
+                }
+                catch (error) {
+                    response.capabilities.afterAuth.push(`Manage Admin Users: FAILED (${error.message})`);
+                }
+                response.hint = 'Admin authentication successful! You can now perform admin-level operations like creating collections, managing schemas, and user administration.';
+            }
+            catch (authError) {
+                console.error('❌ Super admin authentication failed:', authError);
+                response.success = false;
+                response.message = 'Super admin authentication failed';
+                response.hint = authError.status === 400 ? 'Invalid admin credentials' :
+                    authError.status === 404 ? 'Admin user not found or _superusers collection not accessible' :
+                        authError.status === 403 ? 'Admin authentication is disabled or restricted' :
+                            `Authentication error: ${authError.message}`;
+                // Additional specific error handling
+                if (authError.message?.includes('fetch')) {
+                    response.hint += ' (Network connectivity issue)';
+                }
+                else if (authError.status === 403) {
+                    response.hint += ' (This may be a security restriction in production environments)';
+                }
+            }
+        }
+        catch (error) {
+            console.error('❌ Super admin authentication process failed:', error);
+            response.success = false;
+            response.message = `Authentication process failed: ${error.message}`;
+            response.hint = 'Check PocketBase URL and network connectivity';
+        }
+        console.log('=== Super Admin Authentication Complete ===');
+        return response;
     }
 }
 // Export the Durable Object class for Cloudflare Workers
