@@ -59,6 +59,10 @@ export declare class PocketBaseMCPDurableObject {
      */
     private executeTool;
     /**
+     * Create a response for tools that require specific service configuration
+     */
+    private createToolResponse;
+    /**
      * Tool implementations
      */
     private toolListCollections;
@@ -116,5 +120,13 @@ export declare class PocketBaseMCPDurableObject {
      * Get or create PocketBase instance
      */
     private getPocketBaseInstance;
+    /**
+     * Get tools from the comprehensive agent
+     */
+    private getToolsFromAgent;
+    /**
+     * Get fallback tools list
+     */
+    private getFallbackTools;
 }
 export default PocketBaseMCPDurableObject;
