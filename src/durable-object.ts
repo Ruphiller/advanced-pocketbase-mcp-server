@@ -10,7 +10,7 @@
 
 /// <reference types="@cloudflare/workers-types" />
 
-import { ComprehensivePocketBaseMCPAgent } from './agent-comprehensive.js';
+import { WorkerCompatiblePocketBaseMCPAgent } from './agent-worker-compatible.js';
 import PocketBase from 'pocketbase';
 
 // Define types for Cloudflare Workers environment
@@ -38,11 +38,13 @@ export interface AgentState {
 }
 
 export class PocketBaseMCPDurableObject {
-  private agent: ComprehensivePocketBaseMCPAgent | null = null;
+  private agent: WorkerCompatiblePocketBaseMCPAgent | null = null;
+  private pb: PocketBase | null = null;
   private state: DurableObjectState;
   private env: Env;
   private sessions: Map<string, WebSocket> = new Map(); // WebSocket sessions
   private lastActivity: number = Date.now();
+  private initialized = false;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -55,7 +57,7 @@ export class PocketBaseMCPDurableObject {
   /**
    * Initialize the MCP agent with persistent state
    */
-  private async initializeAgent(): Promise<ComprehensivePocketBaseMCPAgent> {
+  private async initializeAgent(): Promise<WorkerCompatiblePocketBaseMCPAgent> {
     if (this.agent) {
       return this.agent;
     }
@@ -64,22 +66,20 @@ export class PocketBaseMCPDurableObject {
     const storedState = await this.state.storage.get('agentState') as AgentState;
     
     // Create agent with restored state
-    this.agent = new ComprehensivePocketBaseMCPAgent();
+    this.agent = new WorkerCompatiblePocketBaseMCPAgent();
     
     // Initialize with environment configuration
     const config = {
       pocketbaseUrl: this.env.POCKETBASE_URL,
       adminEmail: this.env.POCKETBASE_ADMIN_EMAIL,
       adminPassword: this.env.POCKETBASE_ADMIN_PASSWORD,
-      stripeSecretKey: this.env.STRIPE_SECRET_KEY,
-      emailService: this.env.EMAIL_SERVICE,
-      smtpHost: this.env.SMTP_HOST,
     };
 
     await this.agent.init(config);
     
     // Update activity timestamp
     this.lastActivity = Date.now();
+    this.initialized = true;
     
     return this.agent;
   }
