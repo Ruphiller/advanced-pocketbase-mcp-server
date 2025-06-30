@@ -79,6 +79,9 @@ export class PocketBaseMCPAgent extends Agent<Env, State> {
     // Setup resources
     this.setupResources();
 
+    // Setup prompts
+    this.setupPrompts();
+
     // Initialize PocketBase if URL is provided
     await this.initializePocketBase();
 
@@ -806,6 +809,128 @@ export class PocketBaseMCPAgent extends Agent<Env, State> {
             }]
           };
         }
+      }
+    );
+  }
+
+  /**
+   * Setup prompts
+   */
+  private setupPrompts(): void {
+    // PocketBase setup prompt
+    this.server.prompt(
+      "pocketbase_setup",
+      "Guide for setting up PocketBase MCP server",
+      async () => {
+        const hasConfig = Boolean(this.env.POCKETBASE_URL);
+        
+        return {
+          description: "Comprehensive guide for configuring the PocketBase MCP server",
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: hasConfig 
+                  ? `PocketBase MCP Server Configuration Status:
+
+## Current Configuration
+- PocketBase URL: ${this.env.POCKETBASE_URL ? '✓ Configured' : '✗ Missing'}
+- Admin Authentication: ${this.env.POCKETBASE_ADMIN_EMAIL ? '✓ Configured' : '✗ Missing'}
+- Stripe Integration: ${this.env.STRIPE_SECRET_KEY ? '✓ Configured' : '✗ Missing'}
+- Email Service: ${this.env.EMAIL_SERVICE || this.env.SMTP_HOST ? '✓ Configured' : '✗ Missing'}
+
+## Available Tools
+- PocketBase: Database operations, authentication, file upload
+- Stripe: Payment processing, subscription management (if configured)
+- Email: Template-based email sending (if configured)
+- Utilities: Header management, health checks
+
+## Getting Started
+1. Use 'pocketbase_list_collections' to see available collections
+2. Use 'pocketbase_auth_admin' to authenticate as admin
+3. Use 'pocketbase_create_record' to add data
+4. Use 'pocketbase_query_records' to retrieve data
+
+Need help with specific operations? Ask about any PocketBase, Stripe, or email functionality!`
+                  : `PocketBase MCP Server Setup Guide:
+
+## Required Environment Variables
+- POCKETBASE_URL: Your PocketBase instance URL
+- POCKETBASE_ADMIN_EMAIL: Admin user email
+- POCKETBASE_ADMIN_PASSWORD: Admin user password
+
+## Optional Integrations
+- STRIPE_SECRET_KEY: For payment processing
+- EMAIL_SERVICE: 'sendgrid' or 'smtp'
+- SENDGRID_API_KEY: If using SendGrid
+- SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD: If using SMTP
+
+## Quick Start
+1. Deploy a PocketBase instance
+2. Set the environment variables
+3. Restart the MCP server
+4. Use 'pocketbase_list_collections' to verify connection
+
+The server will automatically initialize once properly configured!`
+              }
+            }
+          ]
+        };
+      }
+    );
+
+    // Database schema prompt
+    this.server.prompt(
+      "database_schema_design",
+      "Help design PocketBase database schema",
+      async () => {
+        return {
+          description: "Database schema design assistance for PocketBase",
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Database Schema Design Guide:
+
+## PocketBase Collections Best Practices
+
+### Auth Collections (Users)
+- Built-in user management with email/password
+- Custom fields: profile data, preferences, roles
+- Automatic email verification and password reset
+
+### Base Collections (Data)
+- Use clear, descriptive names (posts, products, orders)
+- Add proper relations between collections
+- Include created/updated timestamps
+- Use appropriate field types (text, number, date, file, relation)
+
+### View Collections (Virtual)
+- Aggregate data from multiple collections
+- Read-only computed views
+- Useful for reporting and analytics
+
+## Common Patterns
+1. **User Profiles**: Extend auth collection with custom fields
+2. **Content Management**: Posts/Articles with categories and tags
+3. **E-commerce**: Products, Orders, Customers with Stripe integration
+4. **File Management**: Use PocketBase's built-in file fields
+5. **Multi-tenant**: Use relation fields to separate data by organization
+
+## Schema Design Questions:
+1. What type of data will you store?
+2. How do users relate to your data?
+3. What are the main relationships between entities?
+4. Do you need file uploads?
+5. Will you integrate with external services (Stripe, email)?
+
+Describe your project needs and I'll help design the optimal schema!`
+              }
+            }
+          ]
+        };
       }
     );
   }
