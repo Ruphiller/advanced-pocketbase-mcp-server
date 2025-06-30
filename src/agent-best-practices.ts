@@ -187,7 +187,7 @@ export class PocketBaseMCPAgentBestPractices extends Agent<Env, State> {
       
       if (adminEmail && adminPassword) {
         try {
-          await this.pb.admins.authWithPassword(adminEmail, adminPassword);
+          await this.pb.collection('_superusers').authWithPassword(adminEmail, adminPassword);
           this.setState({
             ...this.state,
             pocketbaseInitialized: true,
@@ -225,10 +225,8 @@ export class PocketBaseMCPAgentBestPractices extends Agent<Env, State> {
 
     // Initialize Stripe service
     if (this.env.STRIPE_SECRET_KEY) {
-      try {          this.stripeService = new StripeService(
-            this.env.STRIPE_SECRET_KEY,
-            this.pb
-          );
+      try {
+        this.stripeService = new StripeService(this.pb);
       } catch (error) {
         console.warn('Stripe service initialization failed:', error);
       }
