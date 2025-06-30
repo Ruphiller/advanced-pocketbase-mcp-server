@@ -75,11 +75,11 @@ try {
   });
 
   // Check smithery has module field in package.json
-  const hasModuleField = packageJson.module === './src/smithery-entry.ts';
+  const hasSmitheryModuleField = packageJson.module === './src/smithery-entry.ts';
   tests.smithery.checks.push({
     name: 'Package.json module field',
-    status: hasModuleField ? 'PASS' : 'FAIL',
-    details: hasModuleField ? 'Module field points to smithery-entry.ts' : 'Module field missing or incorrect'
+    status: hasSmitheryModuleField ? 'PASS' : 'FAIL',
+    details: hasSmitheryModuleField ? 'Module field points to smithery-entry.ts' : 'Module field missing or incorrect'
   });
 
   // Check Smithery build works
