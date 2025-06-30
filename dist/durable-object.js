@@ -8,7 +8,7 @@
  * - Proper lifecycle management
  */
 /// <reference types="@cloudflare/workers-types" />
-import { WorkerCompatiblePocketBaseMCPAgent } from './agent-worker-compatible.js';
+import { ComprehensivePocketBaseMCPAgent } from './agent-comprehensive.js';
 import PocketBase from 'pocketbase';
 export class PocketBaseMCPDurableObject {
     agent = null;
@@ -34,7 +34,7 @@ export class PocketBaseMCPDurableObject {
         // Restore agent state from Durable Object storage
         const storedState = await this.state.storage.get('agentState');
         // Create agent with restored state
-        this.agent = new WorkerCompatiblePocketBaseMCPAgent();
+        this.agent = new ComprehensivePocketBaseMCPAgent();
         // Initialize with environment configuration
         const config = {
             pocketbaseUrl: this.env.POCKETBASE_URL,
