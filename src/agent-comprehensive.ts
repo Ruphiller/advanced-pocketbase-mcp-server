@@ -1174,6 +1174,278 @@ export class ComprehensivePocketBaseMCPAgent {
       }
     );
 
+    // More Stripe tools - Customer Management
+    this.server.tool(
+      'stripe_update_customer',
+      'Update a Stripe customer',
+      {
+        type: 'object',
+        properties: {
+          customerId: { type: 'string', description: 'Customer ID' },
+          email: { type: 'string', description: 'Updated email' },
+          name: { type: 'string', description: 'Updated name' },
+          metadata: { type: 'object', description: 'Updated metadata' }
+        },
+        required: ['customerId']
+      },
+      async ({ customerId, email, name, metadata }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          const customer = await this.stripeService.updateCustomer(customerId, {
+            email,
+            name,
+            metadata
+          });
+          return this.successResponse({ customer });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to update customer: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'stripe_list_customers',
+      'List Stripe customers',
+      {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of customers to return' },
+          startingAfter: { type: 'string', description: 'Cursor for pagination' },
+          email: { type: 'string', description: 'Filter by email' }
+        }
+      },
+      async ({ limit = 10, startingAfter, email }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          // Note: This would require implementing the method in StripeService
+          return this.errorResponse('List customers method not yet implemented in StripeService');
+        } catch (error: any) {
+          return this.errorResponse(`Failed to list customers: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'stripe_delete_customer',
+      'Delete a Stripe customer',
+      {
+        type: 'object',
+        properties: {
+          customerId: { type: 'string', description: 'Customer ID' }
+        },
+        required: ['customerId']
+      },
+      async ({ customerId }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          // Note: This would require implementing the method in StripeService
+          return this.errorResponse('Delete customer method not yet implemented in StripeService');
+        } catch (error: any) {
+          return this.errorResponse(`Failed to delete customer: ${error.message}`);
+        }
+      }
+    );
+
+    // Payment Intents
+    this.server.tool(
+      'stripe_confirm_payment_intent',
+      'Confirm a payment intent',
+      {
+        type: 'object',
+        properties: {
+          paymentIntentId: { type: 'string', description: 'Payment Intent ID' },
+          paymentMethodId: { type: 'string', description: 'Payment Method ID' }
+        },
+        required: ['paymentIntentId']
+      },
+      async ({ paymentIntentId, paymentMethodId }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          // Note: This would require implementing the method in StripeService
+          return this.errorResponse('Confirm payment intent method not yet implemented in StripeService');
+        } catch (error: any) {
+          return this.errorResponse(`Failed to confirm payment intent: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'stripe_cancel_payment_intent',
+      'Cancel a payment intent',
+      {
+        type: 'object',
+        properties: {
+          paymentIntentId: { type: 'string', description: 'Payment Intent ID' }
+        },
+        required: ['paymentIntentId']
+      },
+      async ({ paymentIntentId }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          // Note: This would require implementing the method in StripeService
+          return this.errorResponse('Cancel payment intent method not yet implemented in StripeService');
+        } catch (error: any) {
+          return this.errorResponse(`Failed to cancel payment intent: ${error.message}`);
+        }
+      }
+    );
+
+    // Setup Intents
+    this.server.tool(
+      'stripe_create_setup_intent',
+      'Create a setup intent for saving payment methods',
+      {
+        type: 'object',
+        properties: {
+          customerId: { type: 'string', description: 'Customer ID' },
+          usage: { type: 'string', description: 'Usage type (on_session, off_session)' },
+          paymentMethodTypes: { type: 'array', description: 'Payment method types', items: { type: 'string' } }
+        },
+        required: ['customerId']
+      },
+      async ({ customerId, usage = 'off_session', paymentMethodTypes = ['card'] }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          const setupIntent = await this.stripeService.createSetupIntent({
+            customerId,
+            usage,
+            paymentMethodTypes
+          });
+          return this.successResponse({ setupIntent });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to create setup intent: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'stripe_confirm_setup_intent',
+      'Confirm a setup intent',
+      {
+        type: 'object',
+        properties: {
+          setupIntentId: { type: 'string', description: 'Setup Intent ID' },
+          paymentMethodId: { type: 'string', description: 'Payment Method ID' }
+        },
+        required: ['setupIntentId']
+      },
+      async ({ setupIntentId, paymentMethodId }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          const setupIntent = await this.stripeService.confirmSetupIntent(setupIntentId, {
+            paymentMethod: paymentMethodId
+          });
+          return this.successResponse({ setupIntent });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to confirm setup intent: ${error.message}`);
+        }
+      }
+    );
+
+    // Payment Links
+    this.server.tool(
+      'stripe_create_payment_link',
+      'Create a payment link',
+      {
+        type: 'object',
+        properties: {
+          priceId: { type: 'string', description: 'Price ID' },
+          quantity: { type: 'number', description: 'Quantity' },
+          metadata: { type: 'object', description: 'Link metadata' }
+        },
+        required: ['priceId']
+      },
+      async ({ priceId, quantity = 1, metadata }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          const paymentLink = await this.stripeService.createPaymentLink({
+            lineItems: [{ price: priceId, quantity }],
+            metadata
+          });
+          return this.successResponse({ paymentLink });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to create payment link: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'stripe_get_payment_link',
+      'Retrieve a payment link',
+      {
+        type: 'object',
+        properties: {
+          paymentLinkId: { type: 'string', description: 'Payment Link ID' }
+        },
+        required: ['paymentLinkId']
+      },
+      async ({ paymentLinkId }) => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          const paymentLink = await this.stripeService.retrievePaymentLink(paymentLinkId);
+          return this.successResponse({ paymentLink });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get payment link: ${error.message}`);
+        }
+      }
+    );
+
+    // Analytics and Sync
+    this.server.tool(
+      'stripe_sync_products',
+      'Sync products from Stripe',
+      { type: 'object', properties: {} },
+      async () => {
+        try {
+          await this.ensureStripe();
+          if (!this.stripeService) {
+            return this.errorResponse('Stripe not configured.');
+          }
+          
+          const result = await this.stripeService.syncProducts();
+          return this.successResponse({ syncResult: result });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to sync products: ${error.message}`);
+        }
+      }
+    );
+
     // Add more Stripe tools: coupons, discounts, tax rates, etc.
   }
 
