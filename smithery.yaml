@@ -1,5 +1,5 @@
 # Smithery configuration file: https://smithery.ai/docs/build/project-config/smithery-yaml
-# This configuration supports both TypeScript runtime (preferred) and container runtime
+# This configuration supports TypeScript runtime (preferred) and container runtime
 
 # For TypeScript runtime (recommended - faster builds, better integration)
 runtime: "typescript"
@@ -15,83 +15,28 @@ startCommand:
       # === REQUIRED CONFIGURATION ===
       pocketbaseUrl:
         type: string
+        format: uri
         title: "PocketBase URL"
-        description: "The URL of your PocketBase instance (e.g., http://127.0.0.1:8090)"
+        description: "PocketBase instance URL (e.g., https://your-pb.com)"
         
       # === OPTIONAL: ADMIN CREDENTIALS ===
       adminEmail:
         type: string
+        format: email
         title: "Admin Email"
-        default: ""
-        description: "Admin email for certain operations"
+        description: "Admin email for elevated operations (enables super admin authentication)"
       adminPassword:
         type: string
         title: "Admin Password"
-        default: ""
-        description: "Admin password"
-        
-      # === OPTIONAL: STRIPE CONFIGURATION ===
-      stripeSecretKey:
-        type: string
-        title: "Stripe Secret Key"
-        default: ""
-        description: "Stripe secret key (sk_test_... for testing, sk_live_... for production)"
-        
-      # === OPTIONAL: EMAIL CONFIGURATION ===
-      emailService:
-        type: string
-        title: "Email Service"
-        default: ""
-        enum: ["", "sendgrid", "smtp"]
-        description: "Email service provider (sendgrid or smtp)"
-      sendgridApiKey:
-        type: string
-        title: "SendGrid API Key"
-        default: ""
-        description: "SendGrid API key (SG....)"
-      smtpHost:
-        type: string
-        title: "SMTP Host"
-        default: ""
-        description: "SMTP server hostname (e.g., smtp.gmail.com)"
-      smtpPort:
-        type: integer
-        title: "SMTP Port"
-        default: 587
-        description: "SMTP server port (usually 587 for TLS, 465 for SSL, 25 for plain)"
-      smtpUser:
-        type: string
-        title: "SMTP Username"
-        default: ""
-        description: "SMTP username/email"
-      smtpPass:
-        type: string
-        title: "SMTP Password"
-        default: ""
-        description: "SMTP password or app-specific password"
-      defaultFromEmail:
-        type: string
-        title: "Default From Email"
-        default: ""
-        description: "Default sender email address"
-        
-      # === OPTIONAL: APPLICATION SETTINGS ===
-      appName:
-        type: string
-        title: "Application Name"
-        default: ""
-        description: "Application name for branding"
-      appUrl:
-        type: string
-        title: "Application URL"
-        default: ""
-        description: "Application URL (e.g., https://yourapp.com)"
+        description: "Admin password for elevated operations"
+      debug:
+        type: boolean
+        default: false
+        title: "Debug Mode"
+        description: "Enable debug logging for troubleshooting"
         
   exampleConfig:
-    pocketbaseUrl: "http://127.0.0.1:8090"
-    stripeSecretKey: "sk_test_..."
-    emailService: "sendgrid"
-    sendgridApiKey: "SG...."
-    defaultFromEmail: "noreply@yourapp.com"
-    appName: "My SaaS App"
-    appUrl: "https://myapp.com"
+    pocketbaseUrl: "https://your-pb-instance.com"
+    adminEmail: "admin@example.com"
+    adminPassword: "your-admin-password"
+    debug: false

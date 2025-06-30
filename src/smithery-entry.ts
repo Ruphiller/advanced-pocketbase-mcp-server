@@ -16,7 +16,7 @@ export const configSchema = z.object({
   adminEmail: z.string().email().optional().describe("Admin email for elevated operations (enables super admin authentication)"),
   adminPassword: z.string().optional().describe("Admin password for elevated operations"),
   debug: z.boolean().default(false).describe("Enable debug logging for troubleshooting")
-});
+}).strict();
 
 export default function ({ config }: { config: z.infer<typeof configSchema> }) {
   const server = new McpServer({
@@ -24,26 +24,29 @@ export default function ({ config }: { config: z.infer<typeof configSchema> }) {
     version: '4.0.0'
   });
 
-  // Initialize the agent with configuration
+  // Initialize the agent with configuration (lazy loading)
   let agent: WorkerCompatiblePocketBaseMCPAgent | null = null;
 
   const initializeAgent = async () => {
     if (!agent) {
+      // Validate config before using it
+      const validatedConfig = configSchema.parse(config);
+      
       agent = new WorkerCompatiblePocketBaseMCPAgent();
       
       // Configure agent with Smithery configuration
       await agent.init({
-        pocketbaseUrl: config.pocketbaseUrl,
-        adminEmail: config.adminEmail,
-        adminPassword: config.adminPassword
+        pocketbaseUrl: validatedConfig.pocketbaseUrl,
+        adminEmail: validatedConfig.adminEmail,
+        adminPassword: validatedConfig.adminPassword
       });
       
-      if (config.debug) {
+      if (validatedConfig.debug) {
         console.log('🚀 Advanced PocketBase MCP Server initialized with Smithery configuration');
         console.log('📊 Configuration:', {
-          pocketbaseUrl: config.pocketbaseUrl,
-          hasAdminCredentials: Boolean(config.adminEmail && config.adminPassword),
-          debugMode: config.debug
+          pocketbaseUrl: validatedConfig.pocketbaseUrl,
+          hasAdminCredentials: Boolean(validatedConfig.adminEmail && validatedConfig.adminPassword),
+          debugMode: validatedConfig.debug
         });
       }
     }
@@ -197,6 +200,8 @@ export default function ({ config }: { config: z.infer<typeof configSchema> }) {
   // Helper function to execute agent tools
   async function executeAgentTool(agentInstance: WorkerCompatiblePocketBaseMCPAgent, toolName: string, args: any) {
     try {
+      const validatedConfig = configSchema.parse(config);
+      
       // Create a mock MCP request
       const mockRequest = {
         jsonrpc: '2.0' as const,
@@ -213,7 +218,7 @@ export default function ({ config }: { config: z.infer<typeof configSchema> }) {
       return {
         content: [{
           type: 'text' as const,
-          text: `Tool ${toolName} executed with Smithery configuration. PocketBase URL: ${config.pocketbaseUrl}`
+          text: `Tool ${toolName} executed with Smithery configuration. PocketBase URL: ${validatedConfig.pocketbaseUrl}`
         }]
       };
     } catch (error: any) {
