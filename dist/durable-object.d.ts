@@ -141,5 +141,13 @@ export declare class PocketBaseMCPDurableObject {
      * Execute PocketBase operation with retry logic
      */
     private executePBOperation;
+    /**
+     * Debug PocketBase authentication and connection
+     */
+    private debugPocketBaseAuth;
+    /**
+     * Check if PocketBase is in read-only mode by testing write operations
+     */
+    private checkPocketBaseWritePermissions;
 }
 export default PocketBaseMCPDurableObject;

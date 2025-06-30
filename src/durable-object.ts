@@ -324,6 +324,12 @@ export class PocketBaseMCPDurableObject {
         case 'health_check':
           return await this.toolGetStatus();
           
+        case 'debug_pocketbase_auth':
+          return await this.debugPocketBaseAuth();
+          
+        case 'check_pocketbase_write_permissions':
+          return await this.checkPocketBaseWritePermissions();
+          
         // PocketBase tools that require direct implementation
         case 'pocketbase_list_collections':
           return await this.toolListCollections();
@@ -1207,7 +1213,9 @@ export class PocketBaseMCPDurableObject {
       
       // Utility tools
       { name: 'get_server_status', description: 'Get comprehensive server status and configuration', inputSchema: { type: 'object', properties: {} } },
-      { name: 'health_check', description: 'Simple health check endpoint', inputSchema: { type: 'object', properties: {} } }
+      { name: 'health_check', description: 'Simple health check endpoint', inputSchema: { type: 'object', properties: {} } },
+      { name: 'debug_pocketbase_auth', description: 'Run comprehensive PocketBase authentication and connection debugging', inputSchema: { type: 'object', properties: {} } },
+      { name: 'check_pocketbase_write_permissions', description: 'Test PocketBase write operations to diagnose read-only mode issues', inputSchema: { type: 'object', properties: {} } }
     ];
     
     return toolDefinitions;
@@ -1335,6 +1343,343 @@ export class PocketBaseMCPDurableObject {
     }
     
     throw lastError;
+  }
+
+  /**
+   * Debug PocketBase authentication and connection
+   */
+  private async debugPocketBaseAuth(): Promise<any> {
+    console.log('=== PocketBase Debug Session ===');
+    
+    const debug = {
+      timestamp: new Date().toISOString(),
+      environment: {
+        pocketbaseUrl: this.env.POCKETBASE_URL || 'NOT_SET',
+        hasAdminEmail: Boolean(this.env.POCKETBASE_ADMIN_EMAIL),
+        hasAdminPassword: Boolean(this.env.POCKETBASE_ADMIN_PASSWORD),
+        adminEmailValue: this.env.POCKETBASE_ADMIN_EMAIL ? 'SET' : 'NOT_SET'
+      },
+      instance: {
+        pbExists: Boolean(this.pb),
+        pbInitialized: this.pbInitialized,
+        pbAuthValid: this.pbAuthValid,
+        pbLastAuth: this.pbLastAuth,
+        authAge: this.pbLastAuth ? Date.now() - this.pbLastAuth : null
+      },
+      tests: {
+        healthCheck: null as any,
+        collectionsTest: null as any,
+        authTest: null as any
+      }
+    };
+
+    if (!this.env.POCKETBASE_URL) {
+      debug.tests.healthCheck = { success: false, error: 'POCKETBASE_URL not configured' };
+      return debug;
+    }
+
+    try {
+      // Test 1: Basic health check
+      console.log('Testing PocketBase health...');
+      const pb = new PocketBase(this.env.POCKETBASE_URL);
+      await pb.health.check();
+      debug.tests.healthCheck = { success: true, message: 'Health check passed' };
+      console.log('✅ Health check passed');
+
+      // Test 2: Collections without auth
+      console.log('Testing collections access without auth...');
+      try {
+        const collections = await pb.collections.getFullList(5);
+        debug.tests.collectionsTest = { 
+          success: true, 
+          message: `Found ${collections.length} collections without auth`,
+          collections: collections.map(c => ({ id: c.id, name: c.name, type: c.type }))
+        };
+        console.log(`✅ Collections access: found ${collections.length} collections`);
+      } catch (error: any) {
+        debug.tests.collectionsTest = { 
+          success: false, 
+          error: error.message, 
+          status: error.status,
+          needsAuth: error.status === 401 || error.status === 403
+        };
+        console.log(`❌ Collections access failed: ${error.message}`);
+      }
+
+      // Test 3: Authentication
+      if (this.env.POCKETBASE_ADMIN_EMAIL && this.env.POCKETBASE_ADMIN_PASSWORD) {
+        console.log('Testing admin authentication...');
+        try {
+          const authResult = await pb.collection('_superusers').authWithPassword(
+            this.env.POCKETBASE_ADMIN_EMAIL,
+            this.env.POCKETBASE_ADMIN_PASSWORD
+          );
+          
+          debug.tests.authTest = { 
+            success: true, 
+            message: 'Authentication successful',
+            user: {
+              id: authResult.record?.id,
+              email: authResult.record?.email
+            },
+            token: authResult.token ? 'PRESENT' : 'MISSING'
+          };
+          console.log('✅ Authentication successful');
+
+          // Test collections again with auth
+          console.log('Testing collections access with auth...');
+          try {
+            const authCollections = await pb.collections.getFullList(5);
+            debug.tests.collectionsTest.withAuth = {
+              success: true,
+              count: authCollections.length,
+              message: `Found ${authCollections.length} collections with auth`
+            };
+            console.log(`✅ Authenticated collections access: found ${authCollections.length} collections`);
+          } catch (error: any) {
+            debug.tests.collectionsTest.withAuth = {
+              success: false,
+              error: error.message,
+              status: error.status
+            };
+            console.log(`❌ Authenticated collections access failed: ${error.message}`);
+          }
+
+        } catch (error: any) {
+          debug.tests.authTest = { 
+            success: false, 
+            error: error.message, 
+            status: error.status,
+            hint: error.status === 400 ? 'Invalid credentials' : 
+                  error.status === 404 ? 'Admin user not found' :
+                  'Authentication system error'
+          };
+          console.log(`❌ Authentication failed: ${error.message}`);
+        }
+      } else {
+        debug.tests.authTest = { 
+          success: false, 
+          error: 'Admin credentials not configured',
+          hint: 'Set POCKETBASE_ADMIN_EMAIL and POCKETBASE_ADMIN_PASSWORD'
+        };
+        console.log('⚠️ Admin credentials not configured');
+      }
+
+    } catch (error: any) {
+      debug.tests.healthCheck = { 
+        success: false, 
+        error: error.message,
+        hint: 'Check if PocketBase URL is correct and server is running'
+      };
+      console.log(`❌ Health check failed: ${error.message}`);
+    }
+
+    console.log('=== Debug Session Complete ===');
+    return debug;
+  }
+
+  /**
+   * Check if PocketBase is in read-only mode by testing write operations
+   */
+  private async checkPocketBaseWritePermissions(): Promise<any> {
+    console.log('=== PocketBase Write Permissions Check ===');
+    
+    const result = {
+      timestamp: new Date().toISOString(),
+      readOperations: {
+        healthCheck: null as any,
+        listCollections: null as any,
+      },
+      writeOperations: {
+        createTest: null as any,
+        updateTest: null as any,
+        deleteTest: null as any
+      },
+      analysis: {
+        isReadOnly: false,
+        possibleCauses: [] as string[]
+      }
+    };
+
+    try {
+      const pb = await this.getPocketBaseInstance();
+      if (!pb) {
+        return { success: false, error: 'PocketBase instance not available' };
+      }
+
+      // Test 1: Health check
+      console.log('Testing health check...');
+      try {
+        await pb.health.check();
+        result.readOperations.healthCheck = { success: true };
+        console.log('✅ Health check passed');
+      } catch (error: any) {
+        result.readOperations.healthCheck = { success: false, error: error.message };
+        console.log(`❌ Health check failed: ${error.message}`);
+        return result;
+      }
+
+      // Test 2: List collections
+      console.log('Testing list collections...');
+      try {
+        const collections = await pb.collections.getFullList(10);
+        result.readOperations.listCollections = { 
+          success: true, 
+          count: collections.length,
+          collections: collections.map(c => ({
+            name: c.name,
+            type: c.type,
+            hasCreateRule: Boolean(c.createRule),
+            hasUpdateRule: Boolean(c.updateRule),
+            hasDeleteRule: Boolean(c.deleteRule),
+            createRule: c.createRule || 'NO_RULE',
+            updateRule: c.updateRule || 'NO_RULE',
+            deleteRule: c.deleteRule || 'NO_RULE'
+          }))
+        };
+        console.log(`✅ Listed ${collections.length} collections`);
+
+        // Check if we have any collections that allow writes
+        const writableCollections = collections.filter(c => 
+          c.createRule !== null || c.updateRule !== null || c.deleteRule !== null
+        );
+        
+        if (writableCollections.length === 0) {
+          result.analysis.possibleCauses.push('All collections have restrictive rules (null rules = no access)');
+        }
+
+        // Try to find a test collection or create one
+        const testCollection = collections.find(c => 
+          c.name.toLowerCase().includes('test') || 
+          c.name.toLowerCase().includes('demo') ||
+          c.name === 'users'
+        );
+
+        if (testCollection) {
+          console.log(`Found test collection: ${testCollection.name}`);
+          
+          // Test 3: Try to create a record
+          console.log('Testing record creation...');
+          try {
+            const testData = {
+              name: 'Test Record ' + Date.now(),
+              test_field: 'debug_test_value'
+            };
+            
+            const record = await pb.collection(testCollection.name).create(testData);
+            result.writeOperations.createTest = { 
+              success: true, 
+              collection: testCollection.name,
+              recordId: record.id 
+            };
+            console.log(`✅ Created test record: ${record.id}`);
+
+            // Test 4: Try to update the record
+            console.log('Testing record update...');
+            try {
+              const updatedRecord = await pb.collection(testCollection.name).update(record.id, {
+                name: 'Updated Test Record ' + Date.now()
+              });
+              result.writeOperations.updateTest = { 
+                success: true, 
+                collection: testCollection.name,
+                recordId: record.id 
+              };
+              console.log(`✅ Updated test record: ${record.id}`);
+            } catch (error: any) {
+              result.writeOperations.updateTest = { 
+                success: false, 
+                error: error.message,
+                status: error.status,
+                collection: testCollection.name
+              };
+              console.log(`❌ Update failed: ${error.message}`);
+              
+              if (error.status === 403) {
+                result.analysis.possibleCauses.push('Update operations forbidden by collection rules');
+              }
+            }
+
+            // Test 5: Try to delete the record
+            console.log('Testing record deletion...');
+            try {
+              await pb.collection(testCollection.name).delete(record.id);
+              result.writeOperations.deleteTest = { 
+                success: true, 
+                collection: testCollection.name,
+                recordId: record.id 
+              };
+              console.log(`✅ Deleted test record: ${record.id}`);
+            } catch (error: any) {
+              result.writeOperations.deleteTest = { 
+                success: false, 
+                error: error.message,
+                status: error.status,
+                collection: testCollection.name
+              };
+              console.log(`❌ Delete failed: ${error.message}`);
+              
+              if (error.status === 403) {
+                result.analysis.possibleCauses.push('Delete operations forbidden by collection rules');
+              }
+            }
+
+          } catch (error: any) {
+            result.writeOperations.createTest = { 
+              success: false, 
+              error: error.message,
+              status: error.status,
+              collection: testCollection.name
+            };
+            console.log(`❌ Create failed: ${error.message}`);
+            
+            if (error.status === 403) {
+              result.analysis.possibleCauses.push('Create operations forbidden by collection rules');
+              result.analysis.isReadOnly = true;
+            } else if (error.status === 401) {
+              result.analysis.possibleCauses.push('Authentication required for write operations');
+            }
+          }
+        } else {
+          result.analysis.possibleCauses.push('No suitable test collection found');
+        }
+
+      } catch (error: any) {
+        result.readOperations.listCollections = { success: false, error: error.message };
+        console.log(`❌ List collections failed: ${error.message}`);
+      }
+
+      // Analyze results
+      const hasWriteFailures = 
+        result.writeOperations.createTest?.success === false ||
+        result.writeOperations.updateTest?.success === false ||
+        result.writeOperations.deleteTest?.success === false;
+
+      if (hasWriteFailures) {
+        result.analysis.isReadOnly = true;
+        
+        // Add common causes
+        if (!this.pbAuthValid) {
+          result.analysis.possibleCauses.push('Not authenticated as admin user');
+        }
+        
+        result.analysis.possibleCauses.push('Check collection rules in PocketBase admin UI');
+        result.analysis.possibleCauses.push('Verify admin user has proper permissions');
+      }
+
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
+
+    console.log('=== Write Permissions Check Complete ===');
+    return {
+      success: true,
+      ...result
+    };
   }
 }
 
