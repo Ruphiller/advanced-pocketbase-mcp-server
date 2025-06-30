@@ -9,7 +9,7 @@ async function testSmitheryEntry() {
     console.log('🔍 Testing Smithery entry point...');
     
     // Import the built entry point
-    const entryPath = path.resolve('./dist/smithery-entry.js');
+    const entryPath = path.resolve('./dist/smithery/smithery-entry.js');
     const { default: createServer, configSchema } = await import(pathToFileURL(entryPath).href);
     
     console.log('✅ Entry point imports successfully');
