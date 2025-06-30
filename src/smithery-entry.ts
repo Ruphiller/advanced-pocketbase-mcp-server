@@ -26,41 +26,33 @@ export default function ({ config }: { config: z.infer<typeof configSchema> }) {
     console.log('📊 Configuration:', {
       pocketbaseUrl: validatedConfig.pocketbaseUrl,
       hasAdminCredentials: Boolean(validatedConfig.adminEmail && validatedConfig.adminPassword),
-      debugMode: validatedConfig.debug
+      debugMode: validatedConfig.debug,
+      totalTools: '100+',
+      features: [
+        'PocketBase CRUD Operations (30+ tools)',
+        'Admin & Authentication Tools (20+ tools)', 
+        'Real-time & WebSocket Tools (10+ tools)',
+        'Stripe Payment Processing (25+ tools)',
+        'Email & Communication Tools (15+ tools)',
+        'Utility & Diagnostic Tools (10+ tools)',
+        'Resources & Prompts'
+      ]
     });
   }
 
   // Create the comprehensive agent with all 100+ tools
   const agent = new ComprehensivePocketBaseMCPAgent();
   
-  // Store configuration in environment variables for lazy initialization
-  // The agent will initialize services when individual tools are called
-  process.env.POCKETBASE_URL = validatedConfig.pocketbaseUrl;
-  process.env.POCKETBASE_ADMIN_EMAIL = validatedConfig.adminEmail || '';
-  process.env.POCKETBASE_ADMIN_PASSWORD = validatedConfig.adminPassword || '';
-  
-  // Set up additional environment variables for optional services
-  // These will be available if configured via Smithery environment variables
-  if (!process.env.STRIPE_SECRET_KEY) process.env.STRIPE_SECRET_KEY = '';
-  if (!process.env.EMAIL_SERVICE) process.env.EMAIL_SERVICE = '';
-  if (!process.env.SENDGRID_API_KEY) process.env.SENDGRID_API_KEY = '';
-  if (!process.env.APP_NAME) process.env.APP_NAME = 'Advanced PocketBase App';
-  process.env.NODE_ENV = 'production';
-
-  if (validatedConfig.debug) {
-    console.log('✅ Advanced PocketBase MCP Server ready with lazy initialization');
-    console.log('🔧 Available features:');
-    console.log('   • PocketBase CRUD Operations (30+ tools)');
-    console.log('   • Admin & Authentication Tools (20+ tools)');
-    console.log('   • Real-time & WebSocket Tools (10+ tools)');
-    console.log('   • Stripe Payment Processing (25+ tools)');
-    console.log('   • Email & Communication Tools (15+ tools)');
-    console.log('   • Utility & Diagnostic Tools (10+ tools)');
-    console.log('   • Resources & Prompts');
-    console.log('   • Full-Stack SaaS Automation Workflows');
-    console.log('📝 Note: Services will initialize when tools are first used');
+  // Set environment variables for the agent to use when tools are called
+  // But DON'T call init() immediately to avoid connection failures during tool scanning
+  if (typeof process !== 'undefined' && process.env) {
+    // Store config in environment for later use by tools
+    process.env.POCKETBASE_URL = validatedConfig.pocketbaseUrl;
+    if (validatedConfig.adminEmail) process.env.POCKETBASE_ADMIN_EMAIL = validatedConfig.adminEmail;
+    if (validatedConfig.adminPassword) process.env.POCKETBASE_ADMIN_PASSWORD = validatedConfig.adminPassword;
   }
 
-  // Return the comprehensive server with all tools
+  // Return the comprehensive server with all 100+ tools, resources, and prompts
+  // The agent will lazy-load connections when individual tools are called
   return agent.server;
 }

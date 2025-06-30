@@ -654,6 +654,16 @@ src/
 
 The Smithery deployment now includes the **complete comprehensive agent** with all advanced features:
 
+### 🎯 All Available Tool Categories (100+ Tools Total):
+- **🗃️ PocketBase Collections Management** (30+ tools): Create, manage, and migrate collections with full schema support
+- **📊 PocketBase Records CRUD** (20+ tools): Complete record operations with advanced querying and batch processing  
+- **🔐 PocketBase Authentication** (15+ tools): User management, OAuth2, OTP, admin operations, and super admin authentication
+- **⚡ PocketBase Real-time & WebSocket** (10+ tools): Live data streaming, subscriptions, and real-time updates
+- **💳 Stripe Payment Processing** (25+ tools): Complete payment infrastructure with customers, products, subscriptions, and webhooks
+- **📧 Email & Communication** (15+ tools): SMTP, SendGrid, template management, and automated email workflows
+- **🤖 SaaS Automation Workflows** (10+ tools): End-to-end business process automation
+- **🔧 Utility & Diagnostic Tools** (10+ tools): Health checks, monitoring, and troubleshooting
+
 ### Option 1: Direct Installation (Recommended)
 To install the **complete Advanced PocketBase Server** with **100+ tools** for Claude Desktop automatically via [Smithery](https://smithery.ai/server/pocketbase-server):
 
