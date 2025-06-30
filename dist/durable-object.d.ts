@@ -30,6 +30,9 @@ export interface AgentState {
 export declare class PocketBaseMCPDurableObject {
     private agent;
     private pb;
+    private pbInitialized;
+    private pbLastAuth;
+    private pbAuthValid;
     private state;
     private env;
     private sessions;
@@ -65,7 +68,7 @@ export declare class PocketBaseMCPDurableObject {
      */
     private createToolResponse;
     /**
-     * Tool implementations
+     * Tool implementations with enhanced error handling and retry logic
      */
     private toolListCollections;
     private toolCreateRecord;
@@ -99,7 +102,7 @@ export declare class PocketBaseMCPDurableObject {
      */
     private handleWake;
     /**
-     * Hibernate the Durable Object
+     * Clean up agent resources
      */
     private hibernate;
     /**
@@ -119,7 +122,7 @@ export declare class PocketBaseMCPDurableObject {
      */
     webSocketError(ws: any, error: Error): Promise<void>;
     /**
-     * Get or create PocketBase instance
+     * Get or create PocketBase instance with proper session management
      */
     private getPocketBaseInstance;
     /**
@@ -130,5 +133,13 @@ export declare class PocketBaseMCPDurableObject {
      * Get fallback tools list
      */
     private getFallbackTools;
+    /**
+     * Test PocketBase connection and authentication
+     */
+    private testPocketBaseConnection;
+    /**
+     * Execute PocketBase operation with retry logic
+     */
+    private executePBOperation;
 }
 export default PocketBaseMCPDurableObject;

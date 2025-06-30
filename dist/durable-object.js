@@ -13,6 +13,9 @@ import PocketBase from 'pocketbase';
 export class PocketBaseMCPDurableObject {
     agent = null;
     pb = null;
+    pbInitialized = false;
+    pbLastAuth = 0;
+    pbAuthValid = false;
     state;
     env;
     sessions = new Map(); // WebSocket sessions
@@ -335,126 +338,324 @@ export class PocketBaseMCPDurableObject {
         }
     }
     /**
-     * Tool implementations
+     * Tool implementations with enhanced error handling and retry logic
      */
     async toolListCollections() {
-        const pb = await this.getPocketBaseInstance();
-        if (!pb) {
-            return { success: false, error: 'PocketBase not initialized' };
-        }
+        console.log('toolListCollections called');
         try {
-            const collections = await pb.collections.getFullList(200);
+            const collections = await this.executePBOperation(async (pb) => await pb.collections.getFullList(200), 'toolListCollections');
+            console.log(`Found ${collections.length} collections`);
             return {
                 success: true,
+                count: collections.length,
                 collections: collections.map((col) => ({
                     id: col.id,
                     name: col.name,
                     type: col.type,
-                    schema: col.schema
-                }))
+                    system: col.system || false,
+                    schema: col.schema || [],
+                    listRule: col.listRule,
+                    viewRule: col.viewRule,
+                    createRule: col.createRule,
+                    updateRule: col.updateRule,
+                    deleteRule: col.deleteRule
+                })),
+                timestamp: new Date().toISOString()
             };
         }
         catch (error) {
-            return { success: false, error: error.message };
+            console.error('toolListCollections error:', error);
+            return {
+                success: false,
+                error: `Failed to list collections: ${error.message}`,
+                code: error.status || 'UNKNOWN_ERROR',
+                hint: error.status === 401 ? 'Authentication may be required or expired' :
+                    error.status === 403 ? 'Insufficient permissions to list collections' :
+                        'Check PocketBase connection and configuration',
+                timestamp: new Date().toISOString()
+            };
         }
     }
     async toolCreateRecord(collection, data) {
-        const pb = await this.getPocketBaseInstance();
-        if (!pb) {
-            return { success: false, error: 'PocketBase not initialized' };
-        }
+        console.log(`toolCreateRecord called for collection: ${collection}`);
         try {
-            const record = await pb.collection(collection).create(data);
-            return { success: true, record };
+            const record = await this.executePBOperation(async (pb) => await pb.collection(collection).create(data), `toolCreateRecord:${collection}`);
+            console.log('Record created successfully:', record.id);
+            return {
+                success: true,
+                record,
+                message: `Record created successfully in collection '${collection}'`,
+                timestamp: new Date().toISOString()
+            };
         }
         catch (error) {
-            return { success: false, error: error.message };
+            console.error(`toolCreateRecord error for collection ${collection}:`, error);
+            // Enhanced error handling for common PocketBase errors
+            let userFriendlyError = error.message;
+            let hint = 'Check your data and try again';
+            if (error.status === 400) {
+                userFriendlyError = `Invalid data provided for collection '${collection}': ${error.message}`;
+                hint = 'Verify that all required fields are provided and data types are correct';
+            }
+            else if (error.status === 403) {
+                userFriendlyError = `Access denied: You don't have permission to create records in collection '${collection}'`;
+                hint = 'Check collection rules or authentication status';
+            }
+            else if (error.status === 404) {
+                userFriendlyError = `Collection '${collection}' not found`;
+                hint = 'Verify the collection name is correct';
+            }
+            else if (error.status === 401) {
+                userFriendlyError = 'Authentication required or expired';
+                hint = 'Check your authentication credentials';
+            }
+            return {
+                success: false,
+                error: userFriendlyError,
+                collection,
+                code: error.status || 'UNKNOWN_ERROR',
+                hint,
+                timestamp: new Date().toISOString()
+            };
         }
     }
     async toolGetRecord(collection, id) {
-        const pb = await this.getPocketBaseInstance();
-        if (!pb) {
-            return { success: false, error: 'PocketBase not initialized' };
-        }
+        console.log(`toolGetRecord called for collection: ${collection}, id: ${id}`);
         try {
-            const record = await pb.collection(collection).getOne(id);
-            return { success: true, record };
+            const record = await this.executePBOperation(async (pb) => await pb.collection(collection).getOne(id), `toolGetRecord:${collection}:${id}`);
+            console.log('Record fetched successfully');
+            return {
+                success: true,
+                record,
+                collection,
+                timestamp: new Date().toISOString()
+            };
         }
         catch (error) {
-            return { success: false, error: error.message };
+            console.error(`toolGetRecord error for collection ${collection}, id ${id}:`, error);
+            let userFriendlyError = error.message;
+            let hint = 'Check the record ID and try again';
+            if (error.status === 404) {
+                userFriendlyError = `Record with ID '${id}' not found in collection '${collection}'`;
+                hint = 'Verify the record ID is correct and the record exists';
+            }
+            else if (error.status === 403) {
+                userFriendlyError = `Access denied: You don't have permission to view this record in collection '${collection}'`;
+                hint = 'Check collection view rules or authentication status';
+            }
+            else if (error.status === 401) {
+                userFriendlyError = 'Authentication required or expired';
+                hint = 'Check your authentication credentials';
+            }
+            return {
+                success: false,
+                error: userFriendlyError,
+                collection,
+                recordId: id,
+                code: error.status || 'UNKNOWN_ERROR',
+                hint,
+                timestamp: new Date().toISOString()
+            };
         }
     }
     async toolListRecords(collection, filter, sort, page, perPage) {
-        const pb = await this.getPocketBaseInstance();
-        if (!pb) {
-            return { success: false, error: 'PocketBase not initialized' };
-        }
+        console.log(`toolListRecords called for collection: ${collection}`);
         try {
-            const options = {};
-            if (filter)
-                options.filter = filter;
-            if (sort)
-                options.sort = sort;
-            const records = await pb.collection(collection).getList(page || 1, perPage || 30, options);
+            const pageNum = page || 1;
+            const perPageNum = perPage || 30;
+            const records = await this.executePBOperation(async (pb) => {
+                const options = {};
+                if (filter) {
+                    options.filter = filter;
+                    console.log('Applied filter:', filter);
+                }
+                if (sort) {
+                    options.sort = sort;
+                    console.log('Applied sort:', sort);
+                }
+                return await pb.collection(collection).getList(pageNum, perPageNum, options);
+            }, `toolListRecords:${collection}`);
+            console.log(`Found ${records.items.length} records (total: ${records.totalItems})`);
             return {
                 success: true,
+                collection,
                 page: records.page,
                 perPage: records.perPage,
                 totalItems: records.totalItems,
                 totalPages: records.totalPages,
-                items: records.items
+                items: records.items,
+                filter: filter || null,
+                sort: sort || null,
+                timestamp: new Date().toISOString()
             };
         }
         catch (error) {
-            return { success: false, error: error.message };
+            console.error(`toolListRecords error for collection ${collection}:`, error);
+            let userFriendlyError = error.message;
+            let hint = 'Check your filter and sort parameters';
+            if (error.status === 400) {
+                userFriendlyError = `Invalid filter or sort parameters for collection '${collection}': ${error.message}`;
+                hint = 'Verify filter syntax and field names in sort parameter';
+            }
+            else if (error.status === 403) {
+                userFriendlyError = `Access denied: You don't have permission to list records in collection '${collection}'`;
+                hint = 'Check collection list rules or authentication status';
+            }
+            else if (error.status === 404) {
+                userFriendlyError = `Collection '${collection}' not found`;
+                hint = 'Verify the collection name is correct';
+            }
+            else if (error.status === 401) {
+                userFriendlyError = 'Authentication required or expired';
+                hint = 'Check your authentication credentials';
+            }
+            return {
+                success: false,
+                error: userFriendlyError,
+                collection,
+                filter: filter || null,
+                sort: sort || null,
+                code: error.status || 'UNKNOWN_ERROR',
+                hint,
+                timestamp: new Date().toISOString()
+            };
         }
     }
     async toolUpdateRecord(collection, id, data) {
-        const pb = await this.getPocketBaseInstance();
-        if (!pb) {
-            return { success: false, error: 'PocketBase not initialized' };
-        }
+        console.log(`toolUpdateRecord called for collection: ${collection}, id: ${id}`);
         try {
-            const record = await pb.collection(collection).update(id, data);
-            return { success: true, record };
+            const record = await this.executePBOperation(async (pb) => await pb.collection(collection).update(id, data), `toolUpdateRecord:${collection}:${id}`);
+            console.log('Record updated successfully');
+            return {
+                success: true,
+                record,
+                collection,
+                message: `Record '${id}' updated successfully in collection '${collection}'`,
+                timestamp: new Date().toISOString()
+            };
         }
         catch (error) {
-            return { success: false, error: error.message };
+            console.error(`toolUpdateRecord error for collection ${collection}, id ${id}:`, error);
+            let userFriendlyError = error.message;
+            let hint = 'Check your data and record ID';
+            if (error.status === 400) {
+                userFriendlyError = `Invalid data provided for updating record '${id}' in collection '${collection}': ${error.message}`;
+                hint = 'Verify data types and required fields';
+            }
+            else if (error.status === 403) {
+                userFriendlyError = `Access denied: You don't have permission to update this record in collection '${collection}'`;
+                hint = 'Check collection update rules or authentication status';
+            }
+            else if (error.status === 404) {
+                userFriendlyError = `Record with ID '${id}' not found in collection '${collection}'`;
+                hint = 'Verify the record ID is correct and the record exists';
+            }
+            else if (error.status === 401) {
+                userFriendlyError = 'Authentication required or expired';
+                hint = 'Check your authentication credentials';
+            }
+            return {
+                success: false,
+                error: userFriendlyError,
+                collection,
+                recordId: id,
+                code: error.status || 'UNKNOWN_ERROR',
+                hint,
+                timestamp: new Date().toISOString()
+            };
         }
     }
     async toolDeleteRecord(collection, id) {
-        const pb = await this.getPocketBaseInstance();
-        if (!pb) {
-            return { success: false, error: 'PocketBase not initialized' };
-        }
+        console.log(`toolDeleteRecord called for collection: ${collection}, id: ${id}`);
         try {
-            await pb.collection(collection).delete(id);
-            return { success: true, message: `Record ${id} deleted from ${collection}` };
+            await this.executePBOperation(async (pb) => await pb.collection(collection).delete(id), `toolDeleteRecord:${collection}:${id}`);
+            console.log('Record deleted successfully');
+            return {
+                success: true,
+                message: `Record '${id}' deleted from collection '${collection}'`,
+                collection,
+                recordId: id,
+                timestamp: new Date().toISOString()
+            };
         }
         catch (error) {
-            return { success: false, error: error.message };
+            console.error(`toolDeleteRecord error for collection ${collection}, id ${id}:`, error);
+            let userFriendlyError = error.message;
+            let hint = 'Check the record ID and your permissions';
+            if (error.status === 403) {
+                userFriendlyError = `Access denied: You don't have permission to delete this record in collection '${collection}'`;
+                hint = 'Check collection delete rules or authentication status';
+            }
+            else if (error.status === 404) {
+                userFriendlyError = `Record with ID '${id}' not found in collection '${collection}'`;
+                hint = 'Verify the record ID is correct and the record exists';
+            }
+            else if (error.status === 401) {
+                userFriendlyError = 'Authentication required or expired';
+                hint = 'Check your authentication credentials';
+            }
+            return {
+                success: false,
+                error: userFriendlyError,
+                collection,
+                recordId: id,
+                code: error.status || 'UNKNOWN_ERROR',
+                hint,
+                timestamp: new Date().toISOString()
+            };
         }
     }
     async toolGetStatus() {
-        const agent = await this.initializeAgent();
-        return {
-            success: true,
-            status: {
-                durableObject: {
-                    id: this.state.id.toString(),
-                    lastActivity: new Date(this.lastActivity).toISOString(),
-                    activeSessions: this.sessions.size
-                },
-                agent: agent.getState(),
-                capabilities: {
-                    pocketbaseUrl: Boolean(this.env.POCKETBASE_URL),
-                    hasAdminAuth: Boolean(this.env.POCKETBASE_ADMIN_EMAIL),
-                    hasStripe: Boolean(this.env.STRIPE_SECRET_KEY),
-                    hasEmail: Boolean(this.env.EMAIL_SERVICE || this.env.SMTP_HOST)
-                },
+        console.log('toolGetStatus called');
+        try {
+            const agent = await this.initializeAgent();
+            // Test PocketBase connection
+            const pbConnectionTest = await this.testPocketBaseConnection();
+            return {
+                success: true,
+                status: {
+                    durableObject: {
+                        id: this.state.id.toString(),
+                        lastActivity: new Date(this.lastActivity).toISOString(),
+                        activeSessions: this.sessions.size,
+                        initialized: this.initialized
+                    },
+                    agent: agent.getState(),
+                    pocketbase: {
+                        configured: Boolean(this.env.POCKETBASE_URL),
+                        connectionTest: pbConnectionTest,
+                        instance: {
+                            initialized: this.pbInitialized,
+                            authenticated: this.pbAuthValid,
+                            lastAuth: this.pbLastAuth ? new Date(this.pbLastAuth).toISOString() : null,
+                            authAge: this.pbLastAuth ? Date.now() - this.pbLastAuth : null
+                        }
+                    },
+                    capabilities: {
+                        pocketbaseUrl: Boolean(this.env.POCKETBASE_URL),
+                        hasAdminAuth: Boolean(this.env.POCKETBASE_ADMIN_EMAIL && this.env.POCKETBASE_ADMIN_PASSWORD),
+                        hasStripe: Boolean(this.env.STRIPE_SECRET_KEY),
+                        hasEmail: Boolean(this.env.EMAIL_SERVICE || this.env.SMTP_HOST)
+                    },
+                    environment: {
+                        pocketbaseUrl: this.env.POCKETBASE_URL ? 'configured' : 'missing',
+                        adminEmail: this.env.POCKETBASE_ADMIN_EMAIL ? 'configured' : 'missing',
+                        adminPassword: this.env.POCKETBASE_ADMIN_PASSWORD ? 'configured' : 'missing',
+                        stripeKey: this.env.STRIPE_SECRET_KEY ? 'configured' : 'missing',
+                        emailService: this.env.EMAIL_SERVICE || 'not configured'
+                    },
+                    timestamp: new Date().toISOString()
+                }
+            };
+        }
+        catch (error) {
+            console.error('toolGetStatus error:', error);
+            return {
+                success: false,
+                error: `Failed to get status: ${error.message}`,
                 timestamp: new Date().toISOString()
-            }
-        };
+            };
+        }
     }
     /**
      * Handle health check requests
@@ -640,22 +841,43 @@ export class PocketBaseMCPDurableObject {
         });
     }
     /**
-     * Hibernate the Durable Object
+     * Clean up agent resources
      */
     async hibernate() {
+        console.log('Hibernating Durable Object...');
         // Close all WebSocket connections
         for (const [sessionId, ws] of this.sessions) {
-            ws.close(1001, 'Hibernating');
+            try {
+                ws.close(1001, 'Hibernating');
+            }
+            catch (error) {
+                console.warn(`Error closing WebSocket ${sessionId}:`, error);
+            }
         }
         this.sessions.clear();
         // Persist final state
         await this.persistAgentState();
+        // Clean up PocketBase connection
+        if (this.pb) {
+            try {
+                // Clear any stored auth data
+                this.pb.authStore.clear();
+            }
+            catch (error) {
+                console.warn('Error clearing PocketBase auth:', error);
+            }
+            this.pb = null;
+            this.pbInitialized = false;
+            this.pbAuthValid = false;
+            this.pbLastAuth = 0;
+        }
         // Clean up agent resources
         if (this.agent) {
-            // Cleanup resources - no specific cleanup method needed
+            // Cleanup resources - no specific cleanup method needed for this agent
             this.agent = null;
         }
-        console.log('Durable Object hibernated');
+        this.initialized = false;
+        console.log('Durable Object hibernated successfully');
     }
     /**
      * Schedule hibernation check
@@ -715,24 +937,69 @@ export class PocketBaseMCPDurableObject {
         }
     }
     /**
-     * Get or create PocketBase instance
+     * Get or create PocketBase instance with proper session management
      */
     async getPocketBaseInstance() {
         if (!this.env.POCKETBASE_URL) {
+            console.warn('POCKETBASE_URL not configured');
             return null;
         }
-        const pb = new PocketBase(this.env.POCKETBASE_URL);
-        // Authenticate if credentials are available
-        if (this.env.POCKETBASE_ADMIN_EMAIL && this.env.POCKETBASE_ADMIN_PASSWORD) {
-            try {
-                await pb.collection('_superusers').authWithPassword(this.env.POCKETBASE_ADMIN_EMAIL, this.env.POCKETBASE_ADMIN_PASSWORD);
+        // Create new instance if needed
+        if (!this.pb) {
+            console.log('Creating new PocketBase instance:', this.env.POCKETBASE_URL);
+            this.pb = new PocketBase(this.env.POCKETBASE_URL);
+            this.pbInitialized = false;
+            this.pbAuthValid = false;
+        }
+        // Check if we need to re-authenticate (every 30 minutes)
+        const now = Date.now();
+        const authAge = now - this.pbLastAuth;
+        const thirtyMinutes = 30 * 60 * 1000;
+        if (!this.pbAuthValid || authAge > thirtyMinutes) {
+            console.log('Authenticating with PocketBase...');
+            // Authenticate if credentials are available
+            if (this.env.POCKETBASE_ADMIN_EMAIL && this.env.POCKETBASE_ADMIN_PASSWORD) {
+                try {
+                    await this.pb.collection('_superusers').authWithPassword(this.env.POCKETBASE_ADMIN_EMAIL, this.env.POCKETBASE_ADMIN_PASSWORD);
+                    this.pbLastAuth = now;
+                    this.pbAuthValid = true;
+                    this.pbInitialized = true;
+                    console.log('PocketBase authentication successful');
+                }
+                catch (error) {
+                    console.error('PocketBase authentication failed:', error.message);
+                    this.pbAuthValid = false;
+                    // If auth fails, try without authentication for public operations
+                    console.log('Continuing without authentication for public operations only');
+                }
             }
-            catch (error) {
-                console.warn('PocketBase authentication failed:', error);
-                // Continue without authentication
+            else {
+                console.log('No admin credentials provided, using unauthenticated access');
+                this.pbAuthValid = false;
+                this.pbInitialized = true;
             }
         }
-        return pb;
+        // Test connection with a simple operation
+        if (this.pbInitialized) {
+            try {
+                // Try to fetch server health - this should work even without auth
+                await this.pb.health.check();
+                console.log('PocketBase connection verified');
+            }
+            catch (error) {
+                console.error('PocketBase connection test failed:', error.message);
+                // Reset the instance and try to reconnect
+                this.pb = null;
+                this.pbInitialized = false;
+                this.pbAuthValid = false;
+                // Recursive call to try again (only once)
+                if (authAge < thirtyMinutes) {
+                    return await this.getPocketBaseInstance();
+                }
+                return null;
+            }
+        }
+        return this.pb;
     }
     /**
      * Get tools from the comprehensive agent
@@ -813,6 +1080,86 @@ export class PocketBaseMCPDurableObject {
                 }
             }
         ];
+    }
+    /**
+     * Test PocketBase connection and authentication
+     */
+    async testPocketBaseConnection() {
+        try {
+            const pb = await this.getPocketBaseInstance();
+            if (!pb) {
+                return {
+                    success: false,
+                    error: 'PocketBase instance not available',
+                    details: { pocketbaseUrl: this.env.POCKETBASE_URL }
+                };
+            }
+            // Test basic health check
+            await pb.health.check();
+            // Test collections access (this should work even without auth for public operations)
+            const collections = await pb.collections.getFullList(1); // Just get 1 to test
+            return {
+                success: true,
+                details: {
+                    url: this.env.POCKETBASE_URL,
+                    authenticated: this.pbAuthValid,
+                    collectionsCount: collections.length,
+                    lastAuth: this.pbLastAuth ? new Date(this.pbLastAuth).toISOString() : null
+                }
+            };
+        }
+        catch (error) {
+            console.error('PocketBase connection test failed:', error);
+            // Reset connection state on failure
+            this.pb = null;
+            this.pbInitialized = false;
+            this.pbAuthValid = false;
+            return {
+                success: false,
+                error: error.message,
+                details: {
+                    status: error.status,
+                    url: this.env.POCKETBASE_URL,
+                    isNetworkError: error.message?.includes('fetch') || error.message?.includes('network')
+                }
+            };
+        }
+    }
+    /**
+     * Execute PocketBase operation with retry logic
+     */
+    async executePBOperation(operation, operationName) {
+        const maxRetries = 2;
+        let lastError;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`${operationName}: attempt ${attempt}/${maxRetries}`);
+                const pb = await this.getPocketBaseInstance();
+                if (!pb) {
+                    throw new Error('PocketBase instance not available');
+                }
+                const result = await operation(pb);
+                console.log(`${operationName}: success on attempt ${attempt}`);
+                return result;
+            }
+            catch (error) {
+                console.error(`${operationName}: failed on attempt ${attempt}:`, error.message);
+                lastError = error;
+                // On certain errors, reset the connection and try again
+                if (attempt < maxRetries && (error.status === 401 || // Unauthorized - may need re-auth
+                    error.status === 403 || // Forbidden - may need re-auth  
+                    error.message?.includes('fetch') || // Network errors
+                    error.message?.includes('network'))) {
+                    console.log(`${operationName}: resetting connection and retrying...`);
+                    this.pb = null;
+                    this.pbInitialized = false;
+                    this.pbAuthValid = false;
+                    // Small delay before retry
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+        }
+        throw lastError;
     }
 }
 // Export the Durable Object class for Cloudflare Workers
