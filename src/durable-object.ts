@@ -1300,7 +1300,7 @@ export class PocketBaseMCPDurableObject {
         
         const pb = await this.getPocketBaseInstance();
         if (!pb) {
-          throw new Error('PocketBase instance not available');
+          throw new Error('PocketBase instance not available - check POCKETBASE_URL configuration');
         }
         
         const result = await operation(pb);
@@ -1316,15 +1316,20 @@ export class PocketBaseMCPDurableObject {
           error.status === 401 ||   // Unauthorized - may need re-auth
           error.status === 403 ||   // Forbidden - may need re-auth  
           error.message?.includes('fetch') ||  // Network errors
-          error.message?.includes('network')
+          error.message?.includes('network') ||
+          error.message?.includes('timeout')
         )) {
           console.log(`${operationName}: resetting connection and retrying...`);
           this.pb = null;
           this.pbInitialized = false;
           this.pbAuthValid = false;
+          this.pbLastAuth = 0;
           
           // Small delay before retry
           await new Promise(resolve => setTimeout(resolve, 1000));
+        } else {
+          // For other errors or on final attempt, break immediately
+          break;
         }
       }
     }
