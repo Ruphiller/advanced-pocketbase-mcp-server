@@ -556,6 +556,26 @@ class PocketBaseMCPAgent {
       }
     );
 
+    // Test tool (always available)
+    this.server.tool(
+      'test_tool',
+      {
+        description: 'A simple test tool that always works to verify tool registration'
+      },
+      async () => {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              message: 'Test tool working!',
+              timestamp: new Date().toISOString(),
+              totalRegisteredTools: 'This should increase the count if registration works'
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
     // Always register all tools (lazy loading approach)
     this.setupStripeTools();
     this.setupEmailTools();
