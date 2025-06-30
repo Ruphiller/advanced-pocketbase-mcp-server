@@ -39,9 +39,11 @@
     "health": "curl -f http://localhost:3000/health || exit 1"
   },
   "dependencies": {
+    "@cloudflare/ai": "^1.2.2",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@sendgrid/mail": "^8.1.5",
     "@types/eventsource": "^1.1.15",
+    "agents": "^0.0.99",
     "dotenv": "^16.4.7",
     "eventsource": "^3.0.6",
     "handlebars": "^4.7.8",
