@@ -488,6 +488,7 @@ export class PocketBaseMCPAgentBestPractices extends Agent<Env, State> {
   private registerStripeTools(): void {
     if (!this.stripeService) return;
 
+    // Create Payment Intent
     this.server.tool(
       'stripe_create_payment',
       'Create a new Stripe payment intent for processing payments',
@@ -525,6 +526,386 @@ export class PocketBaseMCPAgentBestPractices extends Agent<Env, State> {
         }
       }
     );
+
+    // Create Product
+    this.server.tool(
+      'stripe_create_product',
+      'Create a new product in Stripe for selling',
+      {
+        name: z.string().describe('Product name'),
+        description: z.string().optional().describe('Product description'),
+        price: StripeAmountSchema.describe('Price in cents'),
+        currency: CurrencyCodeSchema.optional().describe('Currency code'),
+        interval: z.enum(['month', 'year', 'week', 'day']).optional().describe('Billing interval for subscriptions')
+      },
+      async ({ name, description, price, currency, interval }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const product = await this.stripeService.createProduct({
+            name,
+            description,
+            price,
+            currency,
+            interval
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                product
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Create Customer
+    this.server.tool(
+      'stripe_create_customer',
+      'Create a new customer in Stripe',
+      {
+        email: EmailAddressSchema,
+        name: z.string().optional().describe('Customer name'),
+        metadata: z.record(z.string()).optional().describe('Custom metadata')
+      },
+      async ({ email, name, metadata }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const customer = await this.stripeService.createCustomer({
+            email,
+            name,
+            metadata
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                customer
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Retrieve Customer
+    this.server.tool(
+      'stripe_get_customer',
+      'Retrieve a customer from Stripe by ID',
+      {
+        customerId: z.string().describe('Stripe customer ID')
+      },
+      async ({ customerId }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const customer = await this.stripeService.retrieveCustomer(customerId);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                customer
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Update Customer
+    this.server.tool(
+      'stripe_update_customer',
+      'Update an existing customer in Stripe',
+      {
+        customerId: z.string().describe('Stripe customer ID'),
+        email: EmailAddressSchema.optional(),
+        name: z.string().optional().describe('Customer name'),
+        metadata: z.record(z.string()).optional().describe('Custom metadata')
+      },
+      async ({ customerId, email, name, metadata }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const customer = await this.stripeService.updateCustomer(customerId, {
+            email,
+            name,
+            metadata
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                customer
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Cancel Subscription
+    this.server.tool(
+      'stripe_cancel_subscription',
+      'Cancel a Stripe subscription',
+      {
+        subscriptionId: z.string().describe('Stripe subscription ID'),
+        cancelAtPeriodEnd: z.boolean().optional().describe('Whether to cancel at period end or immediately')
+      },
+      async ({ subscriptionId, cancelAtPeriodEnd }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const subscription = await this.stripeService.cancelSubscription(subscriptionId, cancelAtPeriodEnd);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                subscription
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Create Checkout Session
+    this.server.tool(
+      'stripe_create_checkout_session',
+      'Create a Stripe Checkout session for payment',
+      {
+        priceId: z.string().describe('Stripe price ID'),
+        successUrl: z.string().url().describe('Success redirect URL'),
+        cancelUrl: z.string().url().describe('Cancel redirect URL'),
+        customerId: z.string().optional().describe('Stripe customer ID'),
+        mode: z.enum(['payment', 'subscription', 'setup']).optional().describe('Checkout mode')
+      },
+      async ({ priceId, successUrl, cancelUrl, customerId, mode }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const session = await this.stripeService.createCheckoutSession({
+            priceId,
+            successUrl,
+            cancelUrl,
+            customerId,
+            mode
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                session: {
+                  id: session.sessionId,
+                  url: session.url
+                }
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Create Payment Method
+    this.server.tool(
+      'stripe_create_payment_method',
+      'Create a new payment method in Stripe',
+      {
+        type: z.enum(['card', 'us_bank_account', 'sepa_debit']).describe('Payment method type')
+      },
+      async ({ type }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const paymentMethod = await this.stripeService.createPaymentMethod({
+            type
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                paymentMethod
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // List Payment Methods
+    this.server.tool(
+      'stripe_list_payment_methods',
+      'List payment methods for a customer',
+      {
+        customerId: z.string().describe('Stripe customer ID'),
+        type: z.string().optional().describe('Payment method type filter')
+      },
+      async ({ customerId, type }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const paymentMethods = await this.stripeService.listPaymentMethods(customerId, type);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                paymentMethods
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Create Setup Intent
+    this.server.tool(
+      'stripe_create_setup_intent',
+      'Create a Setup Intent for saving payment methods',
+      {
+        customerId: z.string().describe('Stripe customer ID'),
+        paymentMethodTypes: z.array(z.string()).optional().describe('Allowed payment method types')
+      },
+      async ({ customerId, paymentMethodTypes }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const setupIntent = await this.stripeService.createSetupIntent({
+            customerId,
+            paymentMethodTypes
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                setupIntent
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Create Payment Link
+    this.server.tool(
+      'stripe_create_payment_link',
+      'Create a payment link for products',
+      {
+        priceId: z.string().describe('Stripe price ID'),
+        quantity: z.number().optional().describe('Quantity of the product'),
+        metadata: z.record(z.string()).optional().describe('Custom metadata')
+      },
+      async ({ priceId, quantity, metadata }) => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const paymentLink = await this.stripeService.createPaymentLink({
+            lineItems: [{
+              price: priceId,
+              quantity: quantity || 1
+            }],
+            metadata
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                paymentLink
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Sync Products
+    this.server.tool(
+      'stripe_sync_products',
+      'Sync Stripe products with PocketBase database',
+      {},
+      async () => {
+        try {
+          if (!this.stripeService) {
+            return this.createErrorResponse('Stripe service not available');
+          }
+
+          const result = await this.stripeService.syncProducts();
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                syncResult: result
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
   }
 
   /**
@@ -533,6 +914,7 @@ export class PocketBaseMCPAgentBestPractices extends Agent<Env, State> {
   private registerEmailTools(): void {
     if (!this.emailService) return;
 
+    // Send Templated Email
     this.server.tool(
       'email_send_templated',
       'Send a templated email using the configured email service',
@@ -569,6 +951,321 @@ export class PocketBaseMCPAgentBestPractices extends Agent<Env, State> {
                   status: result.status,
                   sentAt: result.created
                 }
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Send Custom Email
+    this.server.tool(
+      'email_send_custom',
+      'Send a custom email with specified content',
+      {
+        to: EmailAddressSchema,
+        from: EmailAddressSchema.optional(),
+        subject: z.string().describe('Email subject'),
+        htmlBody: z.string().optional().describe('HTML email body'),
+        textBody: z.string().optional().describe('Plain text email body')
+      },
+      async ({ to, from, subject, htmlBody, textBody }) => {
+        try {
+          if (!this.emailService) {
+            return this.createErrorResponse('Email service not available');
+          }
+
+          const result = await this.emailService.sendCustomEmail({
+            to,
+            from,
+            subject,
+            html: htmlBody || '',
+            text: textBody
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                emailLog: {
+                  id: result.id,
+                  to: result.to,
+                  subject: result.subject,
+                  status: result.status,
+                  sentAt: result.created
+                }
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Create Email Template
+    this.server.tool(
+      'email_create_template',
+      'Create a new email template in the database',
+      {
+        name: z.string().describe('Template name/identifier'),
+        subject: z.string().describe('Email subject'),
+        htmlBody: z.string().describe('HTML template body'),
+        textBody: z.string().optional().describe('Plain text template body'),
+        variables: z.array(z.string()).optional().describe('List of template variables')
+      },
+      async ({ name, subject, htmlBody, textBody, variables }) => {
+        try {
+          if (!this.emailService) {
+            return this.createErrorResponse('Email service not available');
+          }
+
+          const template = await this.emailService.createTemplate({
+            name,
+            subject,
+            htmlContent: htmlBody,
+            textContent: textBody,
+            variables
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                template
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Get Email Template
+    this.server.tool(
+      'email_get_template',
+      'Retrieve an email template by name',
+      {
+        name: EmailTemplateSchema
+      },
+      async ({ name }) => {
+        try {
+          if (!this.emailService) {
+            return this.createErrorResponse('Email service not available');
+          }
+
+          const template = await this.emailService.getTemplate(name);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                template
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Update Email Template
+    this.server.tool(
+      'email_update_template',
+      'Update an existing email template',
+      {
+        name: EmailTemplateSchema,
+        subject: z.string().optional().describe('Email subject'),
+        htmlBody: z.string().optional().describe('HTML template body'),
+        textBody: z.string().optional().describe('Plain text template body'),
+        variables: z.array(z.string()).optional().describe('List of template variables')
+      },
+      async ({ name, subject, htmlBody, textBody, variables }) => {
+        try {
+          if (!this.emailService) {
+            return this.createErrorResponse('Email service not available');
+          }
+
+          const template = await this.emailService.updateTemplate(name, {
+            subject,
+            htmlContent: htmlBody,
+            textContent: textBody,
+            variables
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                template
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Test Email Connection
+    this.server.tool(
+      'email_test_connection',
+      'Test the email service connection and configuration',
+      {},
+      async () => {
+        try {
+          if (!this.emailService) {
+            return this.createErrorResponse('Email service not available');
+          }
+
+          const result = await this.emailService.testConnection();
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                connectionTest: result
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Send Enhanced Templated Email
+    this.server.tool(
+      'email_send_enhanced_templated',
+      'Send a templated email with enhanced features (tracking, scheduling, etc.)',
+      {
+        template: EmailTemplateSchema,
+        to: EmailAddressSchema,
+        from: EmailAddressSchema.optional(),
+        subject: z.string().optional().describe('Custom email subject'),
+        variables: z.record(z.unknown()).optional().describe('Template variables'),
+        trackOpens: z.boolean().optional().describe('Enable open tracking'),
+        trackClicks: z.boolean().optional().describe('Enable click tracking'),
+        tags: z.array(z.string()).optional().describe('Email tags for categorization')
+      },
+      async ({ template, to, from, subject, variables, trackOpens, trackClicks, tags }) => {
+        try {
+          if (!this.emailService) {
+            return this.createErrorResponse('Email service not available');
+          }
+
+          const result = await this.emailService.sendEnhancedTemplatedEmail({
+            template,
+            to,
+            from,
+            customSubject: subject,
+            variables,
+            trackingSettings: trackOpens || trackClicks ? {
+              openTracking: trackOpens,
+              clickTracking: trackClicks
+            } : undefined,
+            categories: tags
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                emailLog: {
+                  id: result.id,
+                  to: result.to,
+                  subject: result.subject,
+                  status: result.status,
+                  sentAt: result.created
+                }
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Schedule Templated Email
+    this.server.tool(
+      'email_schedule_templated',
+      'Schedule a templated email to be sent at a specific time',
+      {
+        template: EmailTemplateSchema,
+        to: EmailAddressSchema,
+        from: EmailAddressSchema.optional(),
+        subject: z.string().optional().describe('Custom email subject'),
+        variables: z.record(z.unknown()).optional().describe('Template variables'),
+        scheduledFor: z.string().describe('ISO 8601 datetime string for when to send'),
+        timezone: z.string().optional().describe('Timezone for scheduling (e.g., "America/New_York")')
+      },
+      async ({ template, to, from, subject, variables, scheduledFor, timezone }) => {
+        try {
+          if (!this.emailService) {
+            return this.createErrorResponse('Email service not available');
+          }
+
+          const result = await this.emailService.scheduleTemplatedEmail({
+            template,
+            to,
+            from,
+            customSubject: subject,
+            variables,
+            sendAt: new Date(scheduledFor),
+            categories: timezone ? [timezone] : undefined
+          });
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                scheduledEmail: {
+                  id: result.id,
+                  to: result.to,
+                  subject: result.subject,
+                  status: result.status,
+                  createdAt: result.created
+                }
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return this.createErrorResponse(error);
+        }
+      }
+    );
+
+    // Create Default Templates
+    this.server.tool(
+      'email_create_default_templates',
+      'Create a set of default email templates for common use cases',
+      {},
+      async () => {
+        try {
+          if (!this.emailService) {
+            return this.createErrorResponse('Email service not available');
+          }
+
+          const result = await this.emailService.createDefaultTemplates();
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                createdTemplates: result
               }, null, 2)
             }]
           };
