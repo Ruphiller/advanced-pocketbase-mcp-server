@@ -29,10 +29,12 @@ export interface AgentState {
 }
 export declare class PocketBaseMCPDurableObject {
     private agent;
+    private pb;
     private state;
     private env;
     private sessions;
     private lastActivity;
+    private initialized;
     constructor(state: DurableObjectState, env: Env);
     /**
      * Initialize the MCP agent with persistent state
