@@ -10,7 +10,7 @@
 
 /// <reference types="@cloudflare/workers-types" />
 
-import { ComprehensivePocketBaseMCPAgent } from './agent-comprehensive.js';
+import { WorkerCompatiblePocketBaseMCPAgent } from './agent-worker-compatible.js';
 import PocketBase from 'pocketbase';
 
 // Define types for Cloudflare Workers environment
@@ -38,7 +38,7 @@ export interface AgentState {
 }
 
 export class PocketBaseMCPDurableObject {
-  private agent: ComprehensivePocketBaseMCPAgent | null = null;
+  private agent: WorkerCompatiblePocketBaseMCPAgent | null = null;
   private pb: PocketBase | null = null;
   private state: DurableObjectState;
   private env: Env;
@@ -57,7 +57,7 @@ export class PocketBaseMCPDurableObject {
   /**
    * Initialize the MCP agent with persistent state
    */
-  private async initializeAgent(): Promise<ComprehensivePocketBaseMCPAgent> {
+  private async initializeAgent(): Promise<WorkerCompatiblePocketBaseMCPAgent> {
     if (this.agent) {
       return this.agent;
     }
@@ -66,7 +66,7 @@ export class PocketBaseMCPDurableObject {
     const storedState = await this.state.storage.get('agentState') as AgentState;
     
     // Create agent with restored state
-    this.agent = new ComprehensivePocketBaseMCPAgent();
+    this.agent = new WorkerCompatiblePocketBaseMCPAgent();
     
     // Initialize with environment configuration
     const config = {
