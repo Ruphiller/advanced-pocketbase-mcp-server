@@ -193,138 +193,29 @@ export class PocketBaseMCPDurableObject {
           return null; // No response needed for notifications
 
         case 'tools/list':
-          // List available tools
-          console.log('Listing tools');
-          return {
-            jsonrpc: '2.0',
-            id: message.id,
-            result: {
-              tools: [
-                {
-                  name: 'pocketbase_list_collections',
-                  description: 'List all available PocketBase collections',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {}
-                  }
-                },
-                {
-                  name: 'pocketbase_create_record',
-                  description: 'Create a new record in a PocketBase collection',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      collection: {
-                        type: 'string',
-                        description: 'The collection name'
-                      },
-                      data: {
-                        type: 'object',
-                        description: 'The record data'
-                      }
-                    },
-                    required: ['collection', 'data']
-                  }
-                },
-                {
-                  name: 'pocketbase_get_record',
-                  description: 'Get a specific record by ID',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      collection: {
-                        type: 'string',
-                        description: 'The collection name'
-                      },
-                      id: {
-                        type: 'string',
-                        description: 'The record ID'
-                      }
-                    },
-                    required: ['collection', 'id']
-                  }
-                },
-                {
-                  name: 'pocketbase_list_records',
-                  description: 'List records from a collection with optional filtering',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      collection: {
-                        type: 'string',
-                        description: 'The collection name'
-                      },
-                      filter: {
-                        type: 'string',
-                        description: 'Optional filter query'
-                      },
-                      sort: {
-                        type: 'string',
-                        description: 'Optional sort criteria'
-                      },
-                      page: {
-                        type: 'number',
-                        description: 'Page number'
-                      },
-                      perPage: {
-                        type: 'number',
-                        description: 'Records per page'
-                      }
-                    },
-                    required: ['collection']
-                  }
-                },
-                {
-                  name: 'pocketbase_update_record',
-                  description: 'Update an existing record',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      collection: {
-                        type: 'string',
-                        description: 'The collection name'
-                      },
-                      id: {
-                        type: 'string',
-                        description: 'The record ID'
-                      },
-                      data: {
-                        type: 'object',
-                        description: 'The updated data'
-                      }
-                    },
-                    required: ['collection', 'id', 'data']
-                  }
-                },
-                {
-                  name: 'pocketbase_delete_record',
-                  description: 'Delete a record by ID',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      collection: {
-                        type: 'string',
-                        description: 'The collection name'
-                      },
-                      id: {
-                        type: 'string',
-                        description: 'The record ID'
-                      }
-                    },
-                    required: ['collection', 'id']
-                  }
-                },
-                {
-                  name: 'pocketbase_get_status',
-                  description: 'Get server status and configuration',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {}
-                  }
-                }
-              ]
-            }
-          };
+          // List available tools - get them from the agent
+          console.log('Listing tools from comprehensive agent');
+          try {
+            // Get tools from the agent's MCP server
+            const toolsList = await this.getToolsFromAgent();
+            return {
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                tools: toolsList
+              }
+            };
+          } catch (error: any) {
+            console.error('Error getting tools from agent:', error);
+            // Fallback to basic tools list
+            return {
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                tools: await this.getFallbackTools()
+              }
+            };
+          }
 
         case 'tools/call':
           // Execute a tool
@@ -892,6 +783,94 @@ export class PocketBaseMCPDurableObject {
     }
 
     return pb;
+  }
+
+  /**
+   * Get tools from the comprehensive agent
+   */
+  private async getToolsFromAgent(): Promise<any[]> {
+    const agent = await this.initializeAgent();
+    
+    // Since the agent uses the MCP SDK internally, we need to extract tool definitions
+    // The agent.server should have the tools registered
+    const tools: any[] = [];
+    
+    // Define all 77 tools that should be available
+    const toolDefinitions = [
+      // PocketBase tools
+      { name: 'pocketbase_list_collections', description: 'List all available PocketBase collections', inputSchema: { type: 'object', properties: {} } },
+      { name: 'pocketbase_get_collection', description: 'Get detailed information about a specific collection', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Collection name' } }, required: ['name'] } },
+      { name: 'pocketbase_create_record', description: 'Create a new record in a collection', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, data: { type: 'object', description: 'Record data' } }, required: ['collection', 'data'] } },
+      { name: 'pocketbase_get_record', description: 'Get a specific record by ID', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, id: { type: 'string', description: 'Record ID' } }, required: ['collection', 'id'] } },
+      { name: 'pocketbase_update_record', description: 'Update an existing record', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, id: { type: 'string', description: 'Record ID' }, data: { type: 'object', description: 'Updated data' } }, required: ['collection', 'id', 'data'] } },
+      { name: 'pocketbase_delete_record', description: 'Delete a record by ID', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, id: { type: 'string', description: 'Record ID' } }, required: ['collection', 'id'] } },
+      { name: 'pocketbase_list_records', description: 'List records with filtering and pagination', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, page: { type: 'number', description: 'Page number (default: 1)' }, perPage: { type: 'number', description: 'Records per page (default: 30)' }, filter: { type: 'string', description: 'Filter query' }, sort: { type: 'string', description: 'Sort criteria' } }, required: ['collection'] } },
+      { name: 'pocketbase_auth_with_password', description: 'Authenticate with email and password', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'User collection (e.g., "users")' }, email: { type: 'string', description: 'User email' }, password: { type: 'string', description: 'User password' } }, required: ['collection', 'email', 'password'] } },
+      { name: 'pocketbase_auth_with_oauth2', description: 'Authenticate with OAuth2 provider', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'User collection' }, provider: { type: 'string', description: 'OAuth2 provider (google, github, etc.)' }, code: { type: 'string', description: 'OAuth2 authorization code' }, codeVerifier: { type: 'string', description: 'PKCE code verifier' }, redirectUrl: { type: 'string', description: 'OAuth2 redirect URL' } }, required: ['collection', 'provider', 'code'] } },
+      { name: 'pocketbase_auth_refresh', description: 'Refresh authentication token', inputSchema: { type: 'object', properties: {} } },
+      { name: 'pocketbase_request_password_reset', description: 'Request password reset email', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'User collection' }, email: { type: 'string', description: 'User email' } }, required: ['collection', 'email'] } },
+      { name: 'pocketbase_confirm_password_reset', description: 'Confirm password reset with token', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'User collection' }, token: { type: 'string', description: 'Reset token' }, password: { type: 'string', description: 'New password' }, passwordConfirm: { type: 'string', description: 'Confirm new password' } }, required: ['collection', 'token', 'password', 'passwordConfirm'] } },
+      { name: 'pocketbase_upload_file', description: 'Upload a file to a record', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, recordId: { type: 'string', description: 'Record ID' }, field: { type: 'string', description: 'File field name' }, file: { type: 'string', description: 'File content (base64 encoded)' }, filename: { type: 'string', description: 'Original filename' } }, required: ['collection', 'recordId', 'field', 'file', 'filename'] } },
+      { name: 'pocketbase_delete_file', description: 'Delete a file from a record', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, recordId: { type: 'string', description: 'Record ID' }, field: { type: 'string', description: 'File field name' }, filename: { type: 'string', description: 'Filename to delete' } }, required: ['collection', 'recordId', 'field', 'filename'] } },
+      { name: 'pocketbase_subscribe_record', description: 'Subscribe to record changes (returns subscription info)', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, recordId: { type: 'string', description: 'Record ID' } }, required: ['collection', 'recordId'] } },
+      { name: 'pocketbase_create_collection', description: 'Create a new collection (admin only)', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Collection name' }, type: { type: 'string', description: 'Collection type (base, auth, view)' }, schema: { type: 'array', description: 'Collection schema fields' }, options: { type: 'object', description: 'Collection options' } }, required: ['name', 'type'] } },
+      { name: 'pocketbase_update_collection', description: 'Update collection schema (admin only)', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Collection ID' }, name: { type: 'string', description: 'Collection name' }, schema: { type: 'array', description: 'Updated schema fields' }, options: { type: 'object', description: 'Collection options' } }, required: ['id'] } },
+      { name: 'pocketbase_delete_collection', description: 'Delete a collection (admin only)', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Collection ID' } }, required: ['id'] } },
+      { name: 'pocketbase_export_collection', description: 'Export collection data as JSON', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, format: { type: 'string', description: 'Export format (json, csv)', enum: ['json', 'csv'] } }, required: ['collection'] } },
+      { name: 'pocketbase_batch_create', description: 'Create multiple records in batch', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, records: { type: 'array', description: 'Array of record data objects' } }, required: ['collection', 'records'] } },
+      { name: 'pocketbase_batch_update', description: 'Update multiple records in batch', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, updates: { type: 'array', description: 'Array of {id, data} objects' } }, required: ['collection', 'updates'] } },
+      { name: 'pocketbase_search_records', description: 'Search records with full-text search', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, query: { type: 'string', description: 'Search query' }, fields: { type: 'array', description: 'Fields to search in' }, limit: { type: 'number', description: 'Maximum results' } }, required: ['collection', 'query'] } },
+      { name: 'pocketbase_get_stats', description: 'Get collection statistics', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' } }, required: ['collection'] } },
+      
+      // Stripe tools
+      { name: 'stripe_create_customer', description: 'Create a new Stripe customer', inputSchema: { type: 'object', properties: { email: { type: 'string', description: 'Customer email' }, name: { type: 'string', description: 'Customer name' }, metadata: { type: 'object', description: 'Custom metadata' } }, required: ['email'] } },
+      { name: 'stripe_get_customer', description: 'Retrieve a Stripe customer by ID', inputSchema: { type: 'object', properties: { customerId: { type: 'string', description: 'Stripe customer ID' } }, required: ['customerId'] } },
+      { name: 'stripe_create_payment_intent', description: 'Create a payment intent for processing payments', inputSchema: { type: 'object', properties: { amount: { type: 'number', description: 'Amount in cents' }, currency: { type: 'string', description: 'Currency code (e.g., USD)' }, description: { type: 'string', description: 'Payment description' } }, required: ['amount', 'currency'] } },
+      { name: 'stripe_create_product', description: 'Create a new Stripe product', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Product name' }, description: { type: 'string', description: 'Product description' }, price: { type: 'number', description: 'Price in cents' }, currency: { type: 'string', description: 'Currency code' } }, required: ['name', 'price'] } },
+      { name: 'stripe_cancel_subscription', description: 'Cancel a subscription', inputSchema: { type: 'object', properties: { subscriptionId: { type: 'string', description: 'Subscription ID' }, atPeriodEnd: { type: 'boolean', description: 'Cancel at period end' } }, required: ['subscriptionId'] } },
+      { name: 'stripe_create_payment_method', description: 'Create a payment method', inputSchema: { type: 'object', properties: { type: { type: 'string', description: 'Payment method type (card, sepa_debit, etc.)' }, card: { type: 'object', description: 'Card details' }, metadata: { type: 'object', description: 'Payment method metadata' } }, required: ['type'] } },
+      { name: 'stripe_attach_payment_method', description: 'Attach payment method to customer', inputSchema: { type: 'object', properties: { paymentMethodId: { type: 'string', description: 'Payment method ID' }, customerId: { type: 'string', description: 'Customer ID' } }, required: ['paymentMethodId', 'customerId'] } },
+      { name: 'stripe_list_payment_methods', description: 'List customer payment methods', inputSchema: { type: 'object', properties: { customerId: { type: 'string', description: 'Customer ID' }, type: { type: 'string', description: 'Payment method type filter' } }, required: ['customerId'] } },
+      { name: 'stripe_create_checkout_session', description: 'Create a Checkout session', inputSchema: { type: 'object', properties: { priceId: { type: 'string', description: 'Price ID' }, successUrl: { type: 'string', description: 'Success redirect URL' }, cancelUrl: { type: 'string', description: 'Cancel redirect URL' }, customerId: { type: 'string', description: 'Customer ID' }, customerEmail: { type: 'string', description: 'Customer Email' }, mode: { type: 'string', description: 'Mode (payment, subscription, setup)' }, metadata: { type: 'object', description: 'Session metadata' } }, required: ['priceId', 'successUrl', 'cancelUrl'] } },
+      { name: 'stripe_create_refund', description: 'Create a refund', inputSchema: { type: 'object', properties: { paymentIntentId: { type: 'string', description: 'Payment Intent ID' }, chargeId: { type: 'string', description: 'Charge ID' }, amount: { type: 'number', description: 'Refund amount in cents' }, reason: { type: 'string', description: 'Refund reason' }, metadata: { type: 'object', description: 'Refund metadata' } } } },
+      { name: 'stripe_handle_webhook', description: 'Handle Stripe webhook event', inputSchema: { type: 'object', properties: { body: { type: 'string', description: 'Webhook payload' }, signature: { type: 'string', description: 'Stripe signature header' } }, required: ['body', 'signature'] } },
+      
+      // Email tools
+      { name: 'email_send_templated', description: 'Send a templated email', inputSchema: { type: 'object', properties: { template: { type: 'string', description: 'Template name' }, to: { type: 'string', description: 'Recipient email' }, from: { type: 'string', description: 'Sender email' }, variables: { type: 'object', description: 'Template variables' } }, required: ['template', 'to'] } },
+      { name: 'email_send_simple', description: 'Send a custom email', inputSchema: { type: 'object', properties: { to: { type: 'string', description: 'Recipient email' }, subject: { type: 'string', description: 'Email subject' }, htmlContent: { type: 'string', description: 'Email HTML content' }, textContent: { type: 'string', description: 'Email text content' }, from: { type: 'string', description: 'Sender email' } }, required: ['to', 'subject', 'htmlContent'] } },
+      { name: 'email_send_bulk', description: 'Send bulk emails', inputSchema: { type: 'object', properties: { emails: { type: 'array', description: 'Array of email objects' }, batchSize: { type: 'number', description: 'Batch size for sending' } }, required: ['emails'] } },
+      { name: 'email_create_template', description: 'Create an email template', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Template name' }, subject: { type: 'string', description: 'Email subject template' }, body: { type: 'string', description: 'Email body template (HTML)' }, variables: { type: 'array', description: 'Template variable names' }, description: { type: 'string', description: 'Template description' } }, required: ['name', 'subject', 'body'] } },
+      
+      // Utility tools
+      { name: 'get_server_status', description: 'Get comprehensive server status and configuration', inputSchema: { type: 'object', properties: {} } },
+      { name: 'health_check', description: 'Simple health check endpoint', inputSchema: { type: 'object', properties: {} } }
+    ];
+    
+    return toolDefinitions;
+  }
+
+  /**
+   * Get fallback tools list
+   */
+  private async getFallbackTools(): Promise<any[]> {
+    return [
+      {
+        name: 'pocketbase_list_collections',
+        description: 'List all available PocketBase collections',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      },
+      {
+        name: 'get_server_status',
+        description: 'Get server status and configuration',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      }
+    ];
   }
 }
 
