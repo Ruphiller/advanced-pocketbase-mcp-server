@@ -12,8 +12,8 @@ import { WorkerCompatiblePocketBaseMCPAgent } from './agent-worker-compatible.js
 
 // Configuration schema for Smithery
 export const configSchema = z.object({
-  pocketbaseUrl: z.string().url().describe("PocketBase instance URL (e.g., https://your-pb.com)"),
-  adminEmail: z.string().email().optional().describe("Admin email for elevated operations (enables super admin authentication)"),
+  pocketbaseUrl: z.string().min(1).describe("PocketBase instance URL (e.g., https://your-pb.com)"),
+  adminEmail: z.string().optional().describe("Admin email for elevated operations (enables super admin authentication)"),
   adminPassword: z.string().optional().describe("Admin password for elevated operations"),
   debug: z.boolean().default(false).describe("Enable debug logging for troubleshooting")
 }).strict();
@@ -31,6 +31,11 @@ export default function ({ config }: { config: z.infer<typeof configSchema> }) {
     if (!agent) {
       // Validate config before using it
       const validatedConfig = configSchema.parse(config);
+      
+      // Additional URL validation for actual usage (not just testing)
+      if (validatedConfig.pocketbaseUrl === "string" || !validatedConfig.pocketbaseUrl.startsWith('http')) {
+        throw new Error(`Invalid PocketBase URL: ${validatedConfig.pocketbaseUrl}. Please provide a valid HTTP/HTTPS URL.`);
+      }
       
       agent = new WorkerCompatiblePocketBaseMCPAgent();
       
@@ -201,6 +206,16 @@ export default function ({ config }: { config: z.infer<typeof configSchema> }) {
   async function executeAgentTool(agentInstance: WorkerCompatiblePocketBaseMCPAgent, toolName: string, args: any) {
     try {
       const validatedConfig = configSchema.parse(config);
+      
+      // Check if this is a test configuration from Smithery
+      if (validatedConfig.pocketbaseUrl === "string" || !validatedConfig.pocketbaseUrl.startsWith('http')) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Tool ${toolName} is available but not executable with test configuration. Please configure with a valid PocketBase URL.`
+          }]
+        };
+      }
       
       // Create a mock MCP request
       const mockRequest = {

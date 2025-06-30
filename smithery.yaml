@@ -15,14 +15,12 @@ startCommand:
       # === REQUIRED CONFIGURATION ===
       pocketbaseUrl:
         type: string
-        format: uri
         title: "PocketBase URL"
         description: "PocketBase instance URL (e.g., https://your-pb.com)"
         
       # === OPTIONAL: ADMIN CREDENTIALS ===
       adminEmail:
         type: string
-        format: email
         title: "Admin Email"
         description: "Admin email for elevated operations (enables super admin authentication)"
       adminPassword:
