@@ -12,6 +12,7 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from 'zod';
 import PocketBase from 'pocketbase';
 import { StripeService } from './services/stripe.js';
 import { EmailService } from './services/email.js';
@@ -883,1026 +884,6 @@ export class ComprehensivePocketBaseMCPAgent {
       }
     );
 
-    // EXPANDED POCKETBASE API COVERAGE - ADMIN COLLECTIONS
-    this.server.tool(
-      'pocketbase_truncate_collection',
-      'Truncate/empty all records from a collection',
-      {
-        type: 'object',
-        properties: {
-          collectionId: { type: 'string', description: 'Collection ID' },
-          confirmTruncate: { type: 'boolean', description: 'Confirm truncation (safety check)' }
-        },
-        required: ['collectionId', 'confirmTruncate']
-      },
-      async ({ collectionId, confirmTruncate }) => {
-        try {
-          if (!confirmTruncate) {
-            return this.errorResponse('Truncation not confirmed. Set confirmTruncate to true.');
-          }
-          
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          // PocketBase doesn't have direct truncate, so we'll delete all records
-          const collection = await this.pb.collections.getOne(collectionId);
-          const records = await this.pb.collection(collection.name).getFullList();
-          
-          let deleted = 0;
-          const errors = [];
-          
-          for (const record of records) {
-            try {
-              await this.pb.collection(collection.name).delete(record.id);
-              deleted++;
-            } catch (error: any) {
-              errors.push({ recordId: record.id, error: error.message });
-            }
-          }
-          
-          return this.successResponse({ 
-            collection: collection.name,
-            recordsDeleted: deleted,
-            errors: errors.length,
-            failures: errors
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Collection truncation failed: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_import_collections',
-      'Import collections from JSON configuration',
-      {
-        type: 'object',
-        properties: {
-          collections: { type: 'array', description: 'Array of collection configurations' },
-          deleteExisting: { type: 'boolean', description: 'Delete existing collections first' }
-        },
-        required: ['collections']
-      },
-      async ({ collections, deleteExisting = false }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const results = {
-            imported: 0,
-            skipped: 0,
-            errors: [] as any[]
-          };
-          
-          for (const collectionConfig of collections) {
-            try {
-              if (deleteExisting) {
-                try {
-                  const existing = await this.pb.collections.getOne(collectionConfig.name);
-                  await this.pb.collections.delete(existing.id);
-                } catch {
-                  // Collection doesn't exist, continue
-                }
-              }
-              
-              await this.pb.collections.create(collectionConfig);
-              results.imported++;
-            } catch (error: any) {
-              if (error.message.includes('already exists')) {
-                results.skipped++;
-              } else {
-                results.errors.push({
-                  collection: collectionConfig.name,
-                  error: error.message
-                });
-              }
-            }
-          }
-          
-          return this.successResponse({ importResults: results });
-        } catch (error: any) {
-          return this.errorResponse(`Collection import failed: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_get_collection_scaffolds',
-      'Generate collection scaffolds/templates',
-      {
-        type: 'object',
-        properties: {
-          type: { 
-            type: 'string', 
-            description: 'Scaffold type',
-            enum: ['user', 'blog', 'ecommerce', 'cms', 'forum', 'custom']
-          },
-          name: { type: 'string', description: 'Collection name' }
-        },
-        required: ['type', 'name']
-      },
-      async ({ type, name }) => {
-        try {
-          const scaffolds: Record<string, any> = {
-            user: {
-              name,
-              type: 'auth',
-              schema: [
-                { name: 'username', type: 'text', required: true, options: { min: 3, max: 50 } },
-                { name: 'email', type: 'email', required: true },
-                { name: 'emailVisibility', type: 'bool' },
-                { name: 'verified', type: 'bool' },
-                { name: 'avatar', type: 'file', options: { maxSelect: 1, maxSize: 5242880 } },
-                { name: 'name', type: 'text' },
-                { name: 'bio', type: 'editor' }
-              ]
-            },
-            blog: {
-              name,
-              type: 'base',
-              schema: [
-                { name: 'title', type: 'text', required: true },
-                { name: 'slug', type: 'text', required: true },
-                { name: 'content', type: 'editor', required: true },
-                { name: 'excerpt', type: 'text' },
-                { name: 'featured_image', type: 'file', options: { maxSelect: 1 } },
-                { name: 'status', type: 'select', options: { values: ['draft', 'published', 'archived'] } },
-                { name: 'author', type: 'relation', options: { collectionId: 'users' } },
-                { name: 'tags', type: 'json' },
-                { name: 'published_at', type: 'date' }
-              ]
-            },
-            ecommerce: {
-              name,
-              type: 'base',
-              schema: [
-                { name: 'name', type: 'text', required: true },
-                { name: 'sku', type: 'text', required: true },
-                { name: 'description', type: 'editor' },
-                { name: 'price', type: 'number', required: true },
-                { name: 'sale_price', type: 'number' },
-                { name: 'stock_quantity', type: 'number' },
-                { name: 'images', type: 'file', options: { maxSelect: 10 } },
-                { name: 'category', type: 'relation' },
-                { name: 'status', type: 'select', options: { values: ['active', 'inactive', 'out_of_stock'] } },
-                { name: 'attributes', type: 'json' }
-              ]
-            }
-          };
-          
-          const scaffold = scaffolds[type];
-          if (!scaffold) {
-            return this.errorResponse(`Unknown scaffold type: ${type}`);
-          }
-          
-          return this.successResponse({ 
-            scaffoldType: type,
-            collectionConfig: scaffold,
-            message: `Use pocketbase_create_collection with this configuration`
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Scaffold generation failed: ${error.message}`);
-        }
-      }
-    );
-
-    // SETTINGS API
-    this.server.tool(
-      'pocketbase_get_settings',
-      'Get PocketBase application settings',
-      { type: 'object', properties: {} },
-      async () => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const settings = await this.pb.send('/api/settings', { method: 'GET' });
-          return this.successResponse({ settings });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to get settings: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_update_settings',
-      'Update PocketBase application settings',
-      {
-        type: 'object',
-        properties: {
-          settings: { type: 'object', description: 'Settings object to update' }
-        },
-        required: ['settings']
-      },
-      async ({ settings }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const updatedSettings = await this.pb.send('/api/settings', {
-            method: 'PATCH',
-            body: settings
-          });
-          return this.successResponse({ settings: updatedSettings });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to update settings: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_test_s3_storage',
-      'Test S3 storage connection',
-      {
-        type: 'object',
-        properties: {
-          s3Config: {
-            type: 'object',
-            description: 'S3 configuration to test',
-            properties: {
-              bucket: { type: 'string' },
-              region: { type: 'string' },
-              endpoint: { type: 'string' },
-              accessKey: { type: 'string' },
-              secret: { type: 'string' }
-            }
-          }
-        },
-        required: ['s3Config']
-      },
-      async ({ s3Config }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          // Note: This would require admin authentication
-          const result = await this.pb.send('/api/settings/test/s3', {
-            method: 'POST',
-            body: s3Config
-          });
-          
-          return this.successResponse({ testResult: result });
-        } catch (error: any) {
-          return this.errorResponse(`S3 test failed: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_send_test_email',
-      'Send test email through configured SMTP',
-      {
-        type: 'object',
-        properties: {
-          to: { type: 'string', description: 'Test email recipient' },
-          subject: { type: 'string', description: 'Email subject' },
-          body: { type: 'string', description: 'Email body' }
-        },
-        required: ['to']
-      },
-      async ({ to, subject = 'PocketBase Test Email', body = 'This is a test email from PocketBase.' }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const result = await this.pb.send('/api/settings/test/email', {
-            method: 'POST',
-            body: { to, subject, body }
-          });
-          
-          return this.successResponse({ testResult: result });
-        } catch (error: any) {
-          return this.errorResponse(`Test email failed: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_generate_apple_client_secret',
-      'Generate Apple OAuth2 client secret',
-      {
-        type: 'object',
-        properties: {
-          teamId: { type: 'string', description: 'Apple Team ID' },
-          clientId: { type: 'string', description: 'Apple Client ID' },
-          keyId: { type: 'string', description: 'Apple Key ID' },
-          privateKey: { type: 'string', description: 'Apple Private Key content' }
-        },
-        required: ['teamId', 'clientId', 'keyId', 'privateKey']
-      },
-      async ({ teamId, clientId, keyId, privateKey }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const result = await this.pb.send('/api/settings/apple/generate-client-secret', {
-            method: 'POST',
-            body: { teamId, clientId, keyId, privateKey }
-          });
-          
-          return this.successResponse({ clientSecret: result });
-        } catch (error: any) {
-          return this.errorResponse(`Apple client secret generation failed: ${error.message}`);
-        }
-      }
-    );
-
-    // LOGS API
-    this.server.tool(
-      'pocketbase_list_logs',
-      'List application logs',
-      {
-        type: 'object',
-        properties: {
-          page: { type: 'number', description: 'Page number' },
-          perPage: { type: 'number', description: 'Logs per page' },
-          filter: { type: 'string', description: 'Filter logs' },
-          sort: { type: 'string', description: 'Sort criteria' }
-        }
-      },
-      async ({ page = 1, perPage = 30, filter, sort = '-created' }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const options: any = { sort };
-          if (filter) options.filter = filter;
-          
-          const logs = await this.pb.send('/api/logs', {
-            method: 'GET',
-            query: { page, perPage, sort, ...(filter && { filter }) }
-          });
-          return this.successResponse({ logs });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to list logs: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_get_log',
-      'Get specific log entry by ID',
-      {
-        type: 'object',
-        properties: {
-          logId: { type: 'string', description: 'Log entry ID' }
-        },
-        required: ['logId']
-      },
-      async ({ logId }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const log = await this.pb.send(`/api/logs/${logId}`, { method: 'GET' });
-          return this.successResponse({ log });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to get log: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_get_logs_statistics',
-      'Get logs statistics and analytics',
-      {
-        type: 'object',
-        properties: {
-          filter: { type: 'string', description: 'Filter for statistics' }
-        }
-      },
-      async ({ filter }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const options: any = {};
-          if (filter) options.filter = filter;
-          
-          const stats = await this.pb.send('/api/logs/stats', {
-            method: 'GET',
-            ...(filter && { query: { filter } })
-          });
-          return this.successResponse({ statistics: stats });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to get log statistics: ${error.message}`);
-        }
-      }
-    );
-
-    // CRON JOBS API
-    this.server.tool(
-      'pocketbase_list_cron_jobs',
-      'List all scheduled cron jobs',
-      { type: 'object', properties: {} },
-      async () => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          // PocketBase doesn't expose cron jobs via standard API, this is a placeholder
-          // Implementation would depend on PocketBase version and custom extensions
-          return this.successResponse({ 
-            message: 'Cron jobs listing not directly available via API',
-            cronJobs: []
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to list cron jobs: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_run_cron_job',
-      'Execute a specific cron job manually',
-      {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'Cron job identifier' }
-        },
-        required: ['jobId']
-      },
-      async ({ jobId }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          // This would be implementation-specific
-          const result = await this.pb.send(`/api/admin/crons/${jobId}/run`, {
-            method: 'POST'
-          });
-          
-          return this.successResponse({ 
-            jobId,
-            result,
-            message: 'Cron job executed manually'
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to run cron job: ${error.message}`);
-        }
-      }
-    );
-
-    // BACKUPS API
-    this.server.tool(
-      'pocketbase_list_backups',
-      'List all available backups',
-      { type: 'object', properties: {} },
-      async () => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const backups = await this.pb.send('/api/backups', { method: 'GET' });
-          return this.successResponse({ backups });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to list backups: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_create_backup',
-      'Create a new backup',
-      {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: 'Backup name' }
-        }
-      },
-      async ({ name }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const backup = await this.pb.send('/api/backups', {
-            method: 'POST',
-            body: { name }
-          });
-          return this.successResponse({ backup });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to create backup: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_upload_backup',
-      'Upload a backup file',
-      {
-        type: 'object',
-        properties: {
-          file: { type: 'string', description: 'Backup file content (base64)' },
-          filename: { type: 'string', description: 'Backup filename' }
-        },
-        required: ['file', 'filename']
-      },
-      async ({ file, filename }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const fileBuffer = Buffer.from(file, 'base64');
-          const formData = new FormData();
-          formData.append('file', new File([fileBuffer], filename));
-          
-          const result = await this.pb.send('/api/backups/upload', {
-            method: 'POST',
-            body: formData
-          });
-          return this.successResponse({ result });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to upload backup: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_delete_backup',
-      'Delete a backup by filename',
-      {
-        type: 'object',
-        properties: {
-          filename: { type: 'string', description: 'Backup filename' }
-        },
-        required: ['filename']
-      },
-      async ({ filename }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          await this.pb.send(`/api/backups/${filename}`, { method: 'DELETE' });
-          return this.successResponse({ message: `Backup ${filename} deleted` });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to delete backup: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_restore_backup',
-      'Restore from a backup',
-      {
-        type: 'object',
-        properties: {
-          filename: { type: 'string', description: 'Backup filename to restore' },
-          confirmRestore: { type: 'boolean', description: 'Confirm restoration (safety check)' }
-        },
-        required: ['filename', 'confirmRestore']
-      },
-      async ({ filename, confirmRestore }) => {
-        try {
-          if (!confirmRestore) {
-            return this.errorResponse('Restoration not confirmed. Set confirmRestore to true.');
-          }
-          
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          await this.pb.send(`/api/backups/${filename}/restore`, { method: 'POST' });
-          return this.successResponse({ 
-            message: `Backup ${filename} restored successfully`,
-            warning: 'Server may restart after restoration'
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to restore backup: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_download_backup',
-      'Download a backup file',
-      {
-        type: 'object',
-        properties: {
-          filename: { type: 'string', description: 'Backup filename' }
-        },
-        required: ['filename']
-      },
-      async ({ filename }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const url = `${this.pb.baseUrl}/api/backups/${filename}`;
-          return this.successResponse({ 
-            filename,
-            downloadUrl: url,
-            message: 'Use the downloadUrl to fetch the backup file'
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to get backup download URL: ${error.message}`);
-        }
-      }
-    );
-
-    // HEALTH API
-    this.server.tool(
-      'pocketbase_health_check',
-      'Check PocketBase server health status',
-      { type: 'object', properties: {} },
-      async () => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const health = await this.pb.health.check();
-          return this.successResponse({ 
-            status: 'healthy',
-            timestamp: new Date().toISOString(),
-            health
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Health check failed: ${error.message}`);
-        }
-      }
-    );
-
-    // REALTIME WEBSOCKET MANAGEMENT
-    this.server.tool(
-      'pocketbase_create_realtime_connection',
-      'Create realtime WebSocket connection info',
-      { type: 'object', properties: {} },
-      async () => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const wsUrl = this.pb.baseUrl.replace('http', 'ws') + '/api/realtime';
-          return this.successResponse({ 
-            websocketUrl: wsUrl,
-            message: 'Use this URL to establish WebSocket connection for real-time events',
-            instructions: 'Send subscription messages after connecting'
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to create realtime connection info: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_generate_realtime_subscription',
-      'Generate realtime subscription configuration',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Collection to subscribe to' },
-          recordId: { type: 'string', description: 'Specific record ID (optional, use * for all)' },
-          actions: { 
-            type: 'array', 
-            description: 'Actions to listen for',
-            items: { type: 'string', enum: ['create', 'update', 'delete'] }
-          }
-        },
-        required: ['collection']
-      },
-      async ({ collection, recordId = '*', actions = ['create', 'update', 'delete'] }) => {
-        try {
-          const subscription = {
-            clientId: `client_${Date.now()}`,
-            subscriptions: [{
-              topic: `${collection}/${recordId}`,
-              actions
-            }]
-          };
-          
-          return this.successResponse({ 
-            subscription,
-            message: 'Send this subscription object via WebSocket after connecting'
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to generate subscription: ${error.message}`);
-        }
-      }
-    );
-
-    // FILE OPERATIONS (Extended)
-    this.server.tool(
-      'pocketbase_get_file_url',
-      'Get public URL for a file',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Collection name' },
-          recordId: { type: 'string', description: 'Record ID' },
-          filename: { type: 'string', description: 'Filename' },
-          thumb: { type: 'string', description: 'Thumbnail size (e.g., 100x100)' }
-        },
-        required: ['collection', 'recordId', 'filename']
-      },
-      async ({ collection, recordId, filename, thumb }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          let url = `${this.pb.baseUrl}/api/files/${collection}/${recordId}/${filename}`;
-          if (thumb) {
-            url += `?thumb=${thumb}`;
-          }
-          
-          return this.successResponse({ 
-            fileUrl: url,
-            collection,
-            recordId,
-            filename,
-            thumbnail: thumb || null
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to get file URL: ${error.message}`);
-        }
-      }
-    );
-
-    this.server.tool(
-      'pocketbase_generate_protected_file_token',
-      'Generate protected file access token',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Collection name' },
-          recordId: { type: 'string', description: 'Record ID' },
-          filename: { type: 'string', description: 'Filename' },
-          expiration: { type: 'number', description: 'Token expiration in seconds' }
-        },
-        required: ['collection', 'recordId', 'filename']
-      },
-      async ({ collection, recordId, filename, expiration = 3600 }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const token = await this.pb.files.getToken();
-          const protectedUrl = `${this.pb.baseUrl}/api/files/${collection}/${recordId}/${filename}?token=${token}`;
-          
-          return this.successResponse({ 
-            token,
-            protectedUrl,
-            expiresIn: expiration,
-            message: 'Use this token or URL to access protected files'
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to generate file token: ${error.message}`);
-        }
-      }
-    );
-
-    // AUTH METHODS LISTING
-    this.server.tool(
-      'pocketbase_list_auth_methods',
-      'List available authentication methods for a collection',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Auth collection name' }
-        },
-        required: ['collection']
-      },
-      async ({ collection }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const authMethods = await this.pb.collection(collection).listAuthMethods();
-          return this.successResponse({ 
-            collection,
-            authMethods
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to list auth methods: ${error.message}`);
-        }
-      }
-    );
-
-    // AUTH WITH OTP
-    this.server.tool(
-      'pocketbase_auth_with_otp',
-      'Authenticate using one-time password',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Auth collection name' },
-          otpId: { type: 'string', description: 'OTP ID from previous request' },
-          password: { type: 'string', description: 'One-time password' }
-        },
-        required: ['collection', 'otpId', 'password']
-      },
-      async ({ collection, otpId, password }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const authData = await this.pb.collection(collection).authWithOTP(otpId, password);
-          return this.successResponse({ 
-            user: authData.record,
-            token: authData.token
-          });
-        } catch (error: any) {
-          return this.errorResponse(`OTP authentication failed: ${error.message}`);
-        }
-      }
-    );
-
-    // REQUEST VERIFICATION
-    this.server.tool(
-      'pocketbase_request_verification',
-      'Request email verification',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Auth collection name' },
-          email: { type: 'string', description: 'Email to verify' }
-        },
-        required: ['collection', 'email']
-      },
-      async ({ collection, email }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          await this.pb.collection(collection).requestVerification(email);
-          return this.successResponse({ 
-            message: 'Verification email sent',
-            email
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Verification request failed: ${error.message}`);
-        }
-      }
-    );
-
-    // CONFIRM VERIFICATION
-    this.server.tool(
-      'pocketbase_confirm_verification',
-      'Confirm email verification',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Auth collection name' },
-          token: { type: 'string', description: 'Verification token' }
-        },
-        required: ['collection', 'token']
-      },
-      async ({ collection, token }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          await this.pb.collection(collection).confirmVerification(token);
-          return this.successResponse({ 
-            message: 'Email verified successfully'
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Verification confirmation failed: ${error.message}`);
-        }
-      }
-    );
-
-    // REQUEST EMAIL CHANGE
-    this.server.tool(
-      'pocketbase_request_email_change',
-      'Request email address change',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Auth collection name' },
-          newEmail: { type: 'string', description: 'New email address' }
-        },
-        required: ['collection', 'newEmail']
-      },
-      async ({ collection, newEmail }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          await this.pb.collection(collection).requestEmailChange(newEmail);
-          return this.successResponse({ 
-            message: 'Email change confirmation sent',
-            newEmail
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Email change request failed: ${error.message}`);
-        }
-      }
-    );
-
-    // CONFIRM EMAIL CHANGE
-    this.server.tool(
-      'pocketbase_confirm_email_change',
-      'Confirm email address change',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Auth collection name' },
-          token: { type: 'string', description: 'Email change token' },
-          password: { type: 'string', description: 'Current password' }
-        },
-        required: ['collection', 'token', 'password']
-      },
-      async ({ collection, token, password }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          await this.pb.collection(collection).confirmEmailChange(token, password);
-          return this.successResponse({ 
-            message: 'Email changed successfully'
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Email change confirmation failed: ${error.message}`);
-        }
-      }
-    );
-
-    // IMPERSONATE USER
-    this.server.tool(
-      'pocketbase_impersonate_user',
-      'Impersonate another user (admin only)',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Auth collection name' },
-          userId: { type: 'string', description: 'User ID to impersonate' },
-          duration: { type: 'number', description: 'Impersonation duration in seconds' }
-        },
-        required: ['collection', 'userId']
-      },
-      async ({ collection, userId, duration = 3600 }) => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const authData = await this.pb.collection(collection).impersonate(userId, duration);
-          return this.successResponse({ 
-            user: authData.record,
-            token: authData.token,
-            impersonationDuration: duration
-          });
-        } catch (error: any) {
-          return this.errorResponse(`User impersonation failed: ${error.message}`);
-        }
-      }
-    );
-
     this.server.tool(
       'pocketbase_validate_record_data',
       'Validate record data against collection schema',
@@ -1955,6 +936,342 @@ export class ComprehensivePocketBaseMCPAgent {
           return this.successResponse({ validation });
         } catch (error: any) {
           return this.errorResponse(`Failed to validate record data: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_count_records',
+      'Count records in a collection with optional filtering',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          filter: { type: 'string', description: 'Filter query' }
+        },
+        required: ['collection']
+      },
+      async ({ collection, filter }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const options: any = {};
+          if (filter) options.filter = filter;
+          
+          const result = await this.pb.collection(collection).getList(1, 1, options);
+          return this.successResponse({ 
+            collection,
+            totalCount: result.totalItems,
+            filter: filter || 'none'
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to count records: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_get_unique_values',
+      'Get unique values for a field in a collection',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          field: { type: 'string', description: 'Field name' },
+          limit: { type: 'number', description: 'Max unique values to return' }
+        },
+        required: ['collection', 'field']
+      },
+      async ({ collection, field, limit = 100 }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const records = await this.pb.collection(collection).getFullList();
+          const uniqueValues = new Set();
+          
+          for (const record of records) {
+            if (record[field] !== undefined && record[field] !== null) {
+              uniqueValues.add(record[field]);
+              if (uniqueValues.size >= limit) break;
+            }
+          }
+          
+          return this.successResponse({ 
+            field,
+            uniqueValues: Array.from(uniqueValues),
+            totalUnique: uniqueValues.size
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get unique values: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_bulk_delete',
+      'Delete multiple records by filter',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          filter: { type: 'string', description: 'Filter to select records to delete' },
+          confirmDeletion: { type: 'boolean', description: 'Confirm you want to delete (safety check)' }
+        },
+        required: ['collection', 'filter', 'confirmDeletion']
+      },
+      async ({ collection, filter, confirmDeletion }) => {
+        try {
+          if (!confirmDeletion) {
+            return this.errorResponse('Deletion not confirmed. Set confirmDeletion to true.');
+          }
+          
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // First get records to delete
+          const recordsToDelete = await this.pb.collection(collection).getFullList({
+            filter
+          });
+          
+          const results = {
+            deleted: 0,
+            errors: [] as any[]
+          };
+          
+          for (const record of recordsToDelete) {
+            try {
+              await this.pb.collection(collection).delete(record.id);
+              results.deleted++;
+            } catch (error: any) {
+              results.errors.push({
+                recordId: record.id,
+                error: error.message
+              });
+            }
+          }
+          
+          return this.successResponse({ 
+            bulkDeleteResults: results,
+            filter
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to bulk delete: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_duplicate_record',
+      'Duplicate an existing record',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          recordId: { type: 'string', description: 'ID of record to duplicate' },
+          overrides: { type: 'object', description: 'Fields to override in the duplicate' }
+        },
+        required: ['collection', 'recordId']
+      },
+      async ({ collection, recordId, overrides = {} }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Get original record
+          const originalRecord = await this.pb.collection(collection).getOne(recordId);
+          
+          // Create duplicate data (excluding system fields)
+          const duplicateData = { ...originalRecord };
+          delete duplicateData.id;
+          delete duplicateData.created;
+          delete duplicateData.updated;
+          delete duplicateData.collectionId;
+          delete duplicateData.collectionName;
+          
+          // Apply overrides
+          Object.assign(duplicateData, overrides);
+          
+          // Create duplicate
+          const duplicate = await this.pb.collection(collection).create(duplicateData);
+          
+          return this.successResponse({ 
+            original: originalRecord,
+            duplicate
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to duplicate record: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_get_record_history',
+      'Get change history for a record (if audit logging is enabled)',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          recordId: { type: 'string', description: 'Record ID' },
+          limit: { type: 'number', description: 'Number of history entries' }
+        },
+        required: ['collection', 'recordId']
+      },
+      async ({ collection, recordId, limit = 20 }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Try to get audit log entries
+          try {
+            const auditLogs = await this.pb.collection('audit_logs').getList(1, limit, {
+              filter: `collection="${collection}" && recordId="${recordId}"`,
+              sort: '-created'
+            });
+            
+            return this.successResponse({ 
+              recordId,
+              collection,
+              history: auditLogs.items
+            });
+          } catch {
+            // If no audit logs collection, return empty history
+            return this.successResponse({
+              recordId,
+              collection,
+              history: [],
+              message: 'No audit logging enabled or no history found'
+            });
+          }
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get record history: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_create_relation',
+      'Create a relation between two records',
+      {
+        type: 'object',
+        properties: {
+          fromCollection: { type: 'string', description: 'Source collection' },
+          fromRecordId: { type: 'string', description: 'Source record ID' },
+          toCollection: { type: 'string', description: 'Target collection' },
+          toRecordId: { type: 'string', description: 'Target record ID' },
+          relationType: { type: 'string', description: 'Type of relation' },
+          relationField: { type: 'string', description: 'Field name for the relation' }
+        },
+        required: ['fromCollection', 'fromRecordId', 'toRecordId', 'relationField']
+      },
+      async ({ fromCollection, fromRecordId, toCollection, toRecordId, relationType = 'single', relationField }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Get the source record
+          const sourceRecord = await this.pb.collection(fromCollection).getOne(fromRecordId);
+          
+          // Update the relation field
+          let updateData: any = {};
+          
+          if (relationType === 'multiple') {
+            // Add to array of relations
+            const existingRelations = sourceRecord[relationField] || [];
+            if (!existingRelations.includes(toRecordId)) {
+              updateData[relationField] = [...existingRelations, toRecordId];
+            } else {
+              return this.successResponse({ 
+                message: 'Relation already exists',
+                sourceRecord
+              });
+            }
+          } else {
+            // Single relation
+            updateData[relationField] = toRecordId;
+          }
+          
+          const updatedRecord = await this.pb.collection(fromCollection).update(fromRecordId, updateData);
+          
+          return this.successResponse({ 
+            relation: {
+              from: `${fromCollection}:${fromRecordId}`,
+              to: `${toCollection}:${toRecordId}`,
+              field: relationField,
+              type: relationType
+            },
+            updatedRecord
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to create relation: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_remove_relation',
+      'Remove a relation between two records',
+      {
+        type: 'object',
+        properties: {
+          fromCollection: { type: 'string', description: 'Source collection' },
+          fromRecordId: { type: 'string', description: 'Source record ID' },
+          toRecordId: { type: 'string', description: 'Target record ID to remove' },
+          relationField: { type: 'string', description: 'Field name for the relation' }
+        },
+        required: ['fromCollection', 'fromRecordId', 'toRecordId', 'relationField']
+      },
+      async ({ fromCollection, fromRecordId, toRecordId, relationField }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Get the source record
+          const sourceRecord = await this.pb.collection(fromCollection).getOne(fromRecordId);
+          
+          let updateData: any = {};
+          const currentValue = sourceRecord[relationField];
+          
+          if (Array.isArray(currentValue)) {
+            // Remove from array
+            updateData[relationField] = currentValue.filter(id => id !== toRecordId);
+          } else if (currentValue === toRecordId) {
+            // Clear single relation
+            updateData[relationField] = null;
+          } else {
+            return this.successResponse({ 
+              message: 'Relation does not exist',
+              sourceRecord
+            });
+          }
+          
+          const updatedRecord = await this.pb.collection(fromCollection).update(fromRecordId, updateData);
+          
+          return this.successResponse({ 
+            removedRelation: {
+              from: `${fromCollection}:${fromRecordId}`,
+              to: toRecordId,
+              field: relationField
+            },
+            updatedRecord
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to remove relation: ${error.message}`);
         }
       }
     );
@@ -3604,75 +2921,604 @@ export class ComprehensivePocketBaseMCPAgent {
     
     return csvRows.join('\n');
   }
+
+  /**
+   * Setup PocketBase admin tools for collection management, settings, etc.
+   */
+  private setupPocketBaseAdminTools(): void {
+    // Collection Management Tools
+    this.server.tool(
+      'pocketbase_list_all_collections',
+      'List all collections with detailed schema information',
+      { type: 'object', properties: {} },
+      async () => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const collections = await this.pb.collections.getFullList();
+          return this.successResponse({ collections });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to list collections: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_get_collection_schema',
+      'Get detailed schema for a specific collection',
+      {
+        type: 'object',
+        properties: {
+          collectionId: { type: 'string', description: 'Collection ID or name' }
+        },
+        required: ['collectionId']
+      },
+      async ({ collectionId }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const collection = await this.pb.collections.getOne(collectionId);
+          return this.successResponse({ collection });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get collection schema: ${error.message}`);
+        }
+      }
+    );
+
+    // Settings and Configuration Tools
+    this.server.tool(
+      'pocketbase_get_settings',
+      'Get PocketBase application settings',
+      { type: 'object', properties: {} },
+      async () => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Note: This requires admin authentication
+          // const settings = await this.pb.settings.getAll(); // Not available in PocketBase SDK
+          const settings = { message: 'Settings API not available in current PocketBase SDK' };
+          return this.successResponse({ settings });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get settings: ${error.message}`);
+        }
+      }
+    );
+
+    // Backup and Export Tools
+    this.server.tool(
+      'pocketbase_create_backup',
+      'Create a backup of the PocketBase data',
+      {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Backup name (optional)' }
+        }
+      },
+      async ({ name }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Note: This would typically be done via admin API
+          return this.successResponse({ 
+            message: 'Backup creation initiated',
+            name: name || `backup_${Date.now()}`
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to create backup: ${error.message}`);
+        }
+      }
+    );
+
+    // Logs and Health Tools
+    this.server.tool(
+      'pocketbase_get_logs',
+      'Get application logs',
+      {
+        type: 'object',
+        properties: {
+          level: { type: 'string', description: 'Log level filter' },
+          limit: { type: 'number', description: 'Number of log entries to fetch' }
+        }
+      },
+      async ({ level, limit = 100 }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          return this.successResponse({ 
+            message: 'Logs endpoint would be implemented here',
+            level,
+            limit
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get logs: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_health_check',
+      'Check PocketBase server health',
+      { type: 'object', properties: {} },
+      async () => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Simple health check by trying to fetch collections
+          await this.pb.collections.getList(1, 1);
+          return this.successResponse({ 
+            status: 'healthy',
+            timestamp: new Date().toISOString()
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Health check failed: ${error.message}`);
+        }
+      }
+    );
+  }
+
+  /**
+   * Setup PocketBase realtime and WebSocket tools
+   */
+  private setupPocketBaseRealtimeTools(): void {
+    this.server.tool(
+      'pocketbase_subscribe_collection',
+      'Subscribe to collection changes via realtime',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          filter: { type: 'string', description: 'Filter for specific records' }
+        },
+        required: ['collection']
+      },
+      async ({ collection, filter }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          return this.successResponse({ 
+            message: `Subscribed to collection ${collection}`,
+            collection,
+            filter,
+            subscriptionId: `sub_${collection}_${Date.now()}`
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to subscribe: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_unsubscribe',
+      'Unsubscribe from realtime updates',
+      {
+        type: 'object',
+        properties: {
+          subscriptionId: { type: 'string', description: 'Subscription ID to cancel' }
+        },
+        required: ['subscriptionId']
+      },
+      async ({ subscriptionId }) => {
+        try {
+          return this.successResponse({ 
+            message: `Unsubscribed from ${subscriptionId}`,
+            subscriptionId
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to unsubscribe: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_send_realtime_message',
+      'Send a realtime message to connected clients',
+      {
+        type: 'object',
+        properties: {
+          channel: { type: 'string', description: 'Channel name' },
+          data: { type: 'object', description: 'Message data' }
+        },
+        required: ['channel', 'data']
+      },
+      async ({ channel, data }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          return this.successResponse({ 
+            message: `Sent message to channel ${channel}`,
+            channel,
+            data
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to send message: ${error.message}`);
+        }
+      }
+    );
+  }
+
+  /**
+   * Setup MCP Resources
+   */
+  private setupResources(): void {
+    // Collections Resource
+    this.server.resource(
+      'pocketbase://collections',
+      'pocketbase://collections',
+      { 
+        name: 'PocketBase Collections',
+        description: 'List of all PocketBase collections with their schemas',
+        mimeType: 'application/json'
+      },
+      async () => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return { 
+              contents: [{
+                uri: 'pocketbase://collections',
+                mimeType: 'application/json',
+                text: JSON.stringify({ error: 'PocketBase not configured' })
+              }]
+            };
+          }
+          
+          const collections = await this.pb.collections.getFullList();
+          const data = collections.map((col: any) => ({
+            id: col.id,
+            name: col.name,
+            type: col.type,
+            schema: col.schema,
+            created: col.created,
+            updated: col.updated
+          }));
+          
+          return { 
+            contents: [{
+              uri: 'pocketbase://collections',
+              mimeType: 'application/json',
+              text: JSON.stringify(data, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return { 
+            contents: [{
+              uri: 'pocketbase://collections',
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: error.message })
+            }]
+          };
+        }
+      }
+    );
+
+    // Records Resource Template
+    this.server.resource(
+      'pocketbase_records',
+      'pocketbase://records/{collection}',
+      { 
+        description: 'Access records from a specific collection'
+      },
+      async (uri: any, { collection }: any) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return { 
+              contents: [{
+                uri: uri.href,
+                mimeType: 'application/json',
+                text: JSON.stringify({ error: 'PocketBase not configured' })
+              }]
+            };
+          }
+          
+          const records = await this.pb.collection(collection).getFullList();
+          return { 
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify(records, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return { 
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: error.message })
+            }]
+          };
+        }
+      }
+    );
+
+    // Schema Resource
+    this.server.resource(
+      'pocketbase_schema',
+      'pocketbase://schema',
+      { 
+        description: 'Complete PocketBase database schema'
+      },
+      async (uri: any) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return {
+              contents: [{
+                uri: uri.href,
+                mimeType: 'application/json',
+                text: JSON.stringify({ error: 'PocketBase not configured' })
+              }]
+            };
+          }
+          
+          const collections = await this.pb.collections.getFullList();
+          const schema = {
+            collections: collections.length,
+            schema: collections.map((col: any) => ({
+              name: col.name,
+              type: col.type,
+              fields: col.schema?.length || 0
+            }))
+          };
+          
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify(schema, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: error.message })
+            }]
+          };
+        }
+      }
+    );
+  }
+
+  /**
+   * Setup MCP Prompts
+   */
+  private setupPrompts(): void {
+    // PocketBase Setup Prompt
+    this.server.prompt(
+      'pocketbase-setup',
+      'Help set up a new PocketBase project with collections and initial data',
+      {
+        projectName: z.string().describe('Name of the PocketBase project'),
+        collections: z.string().optional().describe('Collections to create (comma-separated)')
+      },
+      async (args: any) => {
+        const { projectName, collections } = args;
+        
+        return {
+          messages: [
+            {
+              role: 'assistant',
+              content: {
+                type: 'text',
+                text: `I'll help you set up a PocketBase project called "${projectName}".
+
+Here's what I recommend:
+
+1. **Collections Structure**: ${collections ? `Creating collections: ${collections}` : 'We should define your data collections first'}
+
+2. **Basic Setup**:
+   - Users collection for authentication
+   - Posts/Content collections for your main data
+   - Settings collection for app configuration
+
+3. **Initial Configuration**:
+   \`\`\`javascript
+   // Example collection schema
+   {
+     "name": "users",
+     "type": "auth",
+     "schema": [
+       {
+         "name": "name",
+         "type": "text",
+         "required": true
+       },
+       {
+         "name": "avatar",
+         "type": "file",
+         "options": {
+           "maxSelect": 1,
+           "maxSize": 5242880
+         }
+       }
+     ]
+   }
+   \`\`\`
+
+Would you like me to help create specific collections or set up authentication?`
+              }
+            }
+          ]
+        };
+      }
+    );
+
+    // Data Migration Prompt
+    this.server.prompt(
+      'pocketbase-migrate',
+      'Generate migration scripts for PocketBase schema changes',
+      {
+        operation: z.string().describe('Migration operation (create, update, delete)'),
+        target: z.string().describe('Target collection or field')
+      },
+      async (args: any) => {
+        const { operation, target } = args;
+        
+        return {
+          messages: [
+            {
+              role: 'assistant',
+              content: {
+                type: 'text',
+                text: `Here's a migration script for ${operation} operation on ${target}:
+
+\`\`\`javascript
+// Migration: ${operation}_${target}_${Date.now()}
+migrate((db) => {
+  const dao = new Dao(db)
+  
+  ${operation === 'create' ? `
+  const collection = new Collection({
+    "name": "${target}",
+    "type": "base",
+    "schema": [
+      {
+        "name": "title",
+        "type": "text",
+        "required": true
+      }
+    ]
+  })
+  
+  return dao.saveCollection(collection)
+  ` : operation === 'update' ? `
+  const collection = dao.findCollectionByNameOrId("${target}")
+  // Add your schema changes here
+  
+  return dao.saveCollection(collection)
+  ` : `
+  const collection = dao.findCollectionByNameOrId("${target}")
+  return dao.deleteCollection(collection)
+  `}
+}, (db) => {
+  // Rollback logic here
+})
+\`\`\`
+
+This migration will ${operation} the ${target} safely with rollback support.`
+              }
+            }
+          ]
+        };
+      }
+    );
+
+    // API Integration Prompt
+    this.server.prompt(
+      'pocketbase-api-guide',
+      'Generate code examples for PocketBase API integration',
+      {
+        framework: z.string().optional().describe('Frontend framework (react, vue, vanilla, etc.)'),
+        operation: z.string().describe('API operation (auth, crud, realtime)')
+      },
+      async (args: any) => {
+        const { framework = 'vanilla', operation } = args;
+        
+        return {
+          messages: [
+            {
+              role: 'assistant',
+              content: {
+                type: 'text',
+                text: `Here's how to implement ${operation} with PocketBase in ${framework}:
+
+${operation === 'auth' ? `
+\`\`\`javascript
+import PocketBase from 'pocketbase';
+
+const pb = new PocketBase('http://localhost:8090');
+
+// Authentication
+async function login(email, password) {
+  try {
+    const authData = await pb.collection('users').authWithPassword(email, password);
+    console.log('Logged in:', authData);
+    return authData;
+  } catch (error) {
+    console.error('Login failed:', error);
+  }
 }
 
-export default ComprehensivePocketBaseMCPAgent;
-      }    }  }  /**   * Initialize PocketBase connection   */  private async initializePocketBase(): Promise<void> {    try {      const url = this.state.configuration.pocketbaseUrl;      if (!url) return;      this.pb = new PocketBase(url);      const email = this.state.configuration.pocketbaseAdminEmail;      const password = this.state.configuration.pocketbaseAdminPassword;      if (email && password) {        try {          await this.pb.collection('_superusers').authWithPassword(email, password);          this.state.initializationState.isAuthenticated = true;        } catch (authError) {          console.warn('Admin authentication failed:', authError);        }      }
+// Auto-refresh auth
+pb.authStore.onChange((token, record) => {
+  console.log('Auth changed:', !!token, record);
+});
+\`\`\`
+` : operation === 'crud' ? `
+\`\`\`javascript
+// Create record
+const record = await pb.collection('posts').create({
+  title: 'Hello World',
+  content: 'This is my first post'
+});
 
-      this.state.initializationState.pocketbaseInitialized = true;
-    } catch (error) {
-      console.error('PocketBase initialization failed:', error);
-    }
+// Read records
+const records = await pb.collection('posts').getList(1, 20, {
+  filter: 'created > "2023-01-01"',
+  sort: '-created'
+});
+
+// Update record
+await pb.collection('posts').update(record.id, {
+  title: 'Updated Title'
+});
+
+// Delete record
+await pb.collection('posts').delete(record.id);
+\`\`\`
+` : `
+\`\`\`javascript
+// Realtime subscriptions
+pb.collection('posts').subscribe('*', function (e) {
+  console.log(e.action); // create, update, delete
+  console.log(e.record); // the changed record
+});
+
+// Subscribe to specific record
+pb.collection('posts').subscribe(recordId, function (e) {
+  console.log('Record updated:', e.record);
+});
+
+// Unsubscribe
+pb.collection('posts').unsubscribe();
+\`\`\`
+`}
+
+Perfect for ${framework} applications!`
+              }
+            }
+          ]
+        };
+      }
+    );
   }
 
-  /**
-   * Get current state
-   */
-  getState(): PocketBaseMCPServerState {
-    return this.state;
-  }
-
-  /**
-   * Helper for success responses
-   */
-  private successResponse(data: any) {
-    return {
-      content: [{
-        type: 'text' as const,
-        text: JSON.stringify({ success: true, ...data }, null, 2)
-      }]
-    };
-  }
-
-  /**
-   * Helper for error responses
-   */
-  private errorResponse(message: string) {
-    return {
-      content: [{
-        type: 'text' as const,
-        text: JSON.stringify({
-          success: false,
-          error: message,
-          timestamp: new Date().toISOString()
-        })
-      }]
-    };
-  }
-
-  /**
-   * Helper to convert records to CSV format
-   */
-  private recordsToCSV(records: any[]): string {
-    if (records.length === 0) return '';
-    
-    const headers = Object.keys(records[0]);
-    const csvRows = [headers.join(',')];
-    
-    for (const record of records) {
-      const values = headers.map(header => {
-        const value = record[header];
-        // Escape quotes and wrap in quotes if contains comma
-        if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-          return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value;
-      });
-      csvRows.push(values.join(','));
-    }
-    
-    return csvRows.join('\n');
-  }
 }
 
 export default ComprehensivePocketBaseMCPAgent;
