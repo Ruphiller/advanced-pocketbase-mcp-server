@@ -836,6 +836,432 @@ export class ComprehensivePocketBaseMCPAgent {
         }
       }
     );
+
+    // More Advanced PocketBase Tools
+    this.server.tool(
+      'pocketbase_get_collection_schema',
+      'Get detailed schema information for a collection',
+      {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Collection name' }
+        },
+        required: ['name']
+      },
+      async ({ name }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const collection = await this.pb.collections.getOne(name);
+          return this.successResponse({ 
+            schema: collection.schema,
+            collectionInfo: {
+              id: collection.id,
+              name: collection.name,
+              type: collection.type,
+              system: collection.system
+            }
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get collection schema: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_validate_record_data',
+      'Validate record data against collection schema',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          data: { type: 'object', description: 'Record data to validate' }
+        },
+        required: ['collection', 'data']
+      },
+      async ({ collection, data }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Get collection schema
+          const collectionInfo = await this.pb.collections.getOne(collection);
+          const schema = collectionInfo.schema;
+          
+          const validation = {
+            valid: true,
+            errors: [] as string[],
+            warnings: [] as string[],
+            schema: schema
+          };
+          
+          // Basic validation
+          if (schema && Array.isArray(schema)) {
+            for (const field of schema) {
+              const value = data[field.name];
+              
+              if (field.required && (value === undefined || value === null || value === '')) {
+                validation.valid = false;
+                validation.errors.push(`Required field '${field.name}' is missing`);
+              }
+              
+              if (value !== undefined && field.type) {
+                // Type-specific validation could be added here
+                if (field.type === 'email' && value && !value.includes('@')) {
+                  validation.valid = false;
+                  validation.errors.push(`Field '${field.name}' must be a valid email`);
+                }
+              }
+            }
+          }
+          
+          return this.successResponse({ validation });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to validate record data: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_count_records',
+      'Count records in a collection with optional filtering',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          filter: { type: 'string', description: 'Filter query' }
+        },
+        required: ['collection']
+      },
+      async ({ collection, filter }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const options: any = {};
+          if (filter) options.filter = filter;
+          
+          const result = await this.pb.collection(collection).getList(1, 1, options);
+          return this.successResponse({ 
+            collection,
+            totalCount: result.totalItems,
+            filter: filter || 'none'
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to count records: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_get_unique_values',
+      'Get unique values for a field in a collection',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          field: { type: 'string', description: 'Field name' },
+          limit: { type: 'number', description: 'Max unique values to return' }
+        },
+        required: ['collection', 'field']
+      },
+      async ({ collection, field, limit = 100 }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const records = await this.pb.collection(collection).getFullList();
+          const uniqueValues = new Set();
+          
+          for (const record of records) {
+            if (record[field] !== undefined && record[field] !== null) {
+              uniqueValues.add(record[field]);
+              if (uniqueValues.size >= limit) break;
+            }
+          }
+          
+          return this.successResponse({ 
+            field,
+            uniqueValues: Array.from(uniqueValues),
+            totalUnique: uniqueValues.size
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get unique values: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_bulk_delete',
+      'Delete multiple records by filter',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          filter: { type: 'string', description: 'Filter to select records to delete' },
+          confirmDeletion: { type: 'boolean', description: 'Confirm you want to delete (safety check)' }
+        },
+        required: ['collection', 'filter', 'confirmDeletion']
+      },
+      async ({ collection, filter, confirmDeletion }) => {
+        try {
+          if (!confirmDeletion) {
+            return this.errorResponse('Deletion not confirmed. Set confirmDeletion to true.');
+          }
+          
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // First get records to delete
+          const recordsToDelete = await this.pb.collection(collection).getFullList({
+            filter
+          });
+          
+          const results = {
+            deleted: 0,
+            errors: [] as any[]
+          };
+          
+          for (const record of recordsToDelete) {
+            try {
+              await this.pb.collection(collection).delete(record.id);
+              results.deleted++;
+            } catch (error: any) {
+              results.errors.push({
+                recordId: record.id,
+                error: error.message
+              });
+            }
+          }
+          
+          return this.successResponse({ 
+            bulkDeleteResults: results,
+            filter
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to bulk delete: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_duplicate_record',
+      'Duplicate an existing record',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          recordId: { type: 'string', description: 'ID of record to duplicate' },
+          overrides: { type: 'object', description: 'Fields to override in the duplicate' }
+        },
+        required: ['collection', 'recordId']
+      },
+      async ({ collection, recordId, overrides = {} }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Get original record
+          const originalRecord = await this.pb.collection(collection).getOne(recordId);
+          
+          // Create duplicate data (excluding system fields)
+          const duplicateData = { ...originalRecord };
+          delete duplicateData.id;
+          delete duplicateData.created;
+          delete duplicateData.updated;
+          delete duplicateData.collectionId;
+          delete duplicateData.collectionName;
+          
+          // Apply overrides
+          Object.assign(duplicateData, overrides);
+          
+          // Create duplicate
+          const duplicate = await this.pb.collection(collection).create(duplicateData);
+          
+          return this.successResponse({ 
+            original: originalRecord,
+            duplicate
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to duplicate record: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_get_record_history',
+      'Get change history for a record (if audit logging is enabled)',
+      {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name' },
+          recordId: { type: 'string', description: 'Record ID' },
+          limit: { type: 'number', description: 'Number of history entries' }
+        },
+        required: ['collection', 'recordId']
+      },
+      async ({ collection, recordId, limit = 20 }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Try to get audit log entries
+          try {
+            const auditLogs = await this.pb.collection('audit_logs').getList(1, limit, {
+              filter: `collection="${collection}" && recordId="${recordId}"`,
+              sort: '-created'
+            });
+            
+            return this.successResponse({ 
+              recordId,
+              collection,
+              history: auditLogs.items
+            });
+          } catch {
+            // If no audit logs collection, return empty history
+            return this.successResponse({
+              recordId,
+              collection,
+              history: [],
+              message: 'No audit logging enabled or no history found'
+            });
+          }
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get record history: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_create_relation',
+      'Create a relation between two records',
+      {
+        type: 'object',
+        properties: {
+          fromCollection: { type: 'string', description: 'Source collection' },
+          fromRecordId: { type: 'string', description: 'Source record ID' },
+          toCollection: { type: 'string', description: 'Target collection' },
+          toRecordId: { type: 'string', description: 'Target record ID' },
+          relationType: { type: 'string', description: 'Type of relation' },
+          relationField: { type: 'string', description: 'Field name for the relation' }
+        },
+        required: ['fromCollection', 'fromRecordId', 'toRecordId', 'relationField']
+      },
+      async ({ fromCollection, fromRecordId, toCollection, toRecordId, relationType = 'single', relationField }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Get the source record
+          const sourceRecord = await this.pb.collection(fromCollection).getOne(fromRecordId);
+          
+          // Update the relation field
+          let updateData: any = {};
+          
+          if (relationType === 'multiple') {
+            // Add to array of relations
+            const existingRelations = sourceRecord[relationField] || [];
+            if (!existingRelations.includes(toRecordId)) {
+              updateData[relationField] = [...existingRelations, toRecordId];
+            } else {
+              return this.successResponse({ 
+                message: 'Relation already exists',
+                sourceRecord
+              });
+            }
+          } else {
+            // Single relation
+            updateData[relationField] = toRecordId;
+          }
+          
+          const updatedRecord = await this.pb.collection(fromCollection).update(fromRecordId, updateData);
+          
+          return this.successResponse({ 
+            relation: {
+              from: `${fromCollection}:${fromRecordId}`,
+              to: `${toCollection}:${toRecordId}`,
+              field: relationField,
+              type: relationType
+            },
+            updatedRecord
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to create relation: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'pocketbase_remove_relation',
+      'Remove a relation between two records',
+      {
+        type: 'object',
+        properties: {
+          fromCollection: { type: 'string', description: 'Source collection' },
+          fromRecordId: { type: 'string', description: 'Source record ID' },
+          toRecordId: { type: 'string', description: 'Target record ID to remove' },
+          relationField: { type: 'string', description: 'Field name for the relation' }
+        },
+        required: ['fromCollection', 'fromRecordId', 'toRecordId', 'relationField']
+      },
+      async ({ fromCollection, fromRecordId, toRecordId, relationField }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          // Get the source record
+          const sourceRecord = await this.pb.collection(fromCollection).getOne(fromRecordId);
+          
+          let updateData: any = {};
+          const currentValue = sourceRecord[relationField];
+          
+          if (Array.isArray(currentValue)) {
+            // Remove from array
+            updateData[relationField] = currentValue.filter(id => id !== toRecordId);
+          } else if (currentValue === toRecordId) {
+            // Clear single relation
+            updateData[relationField] = null;
+          } else {
+            return this.successResponse({ 
+              message: 'Relation does not exist',
+              sourceRecord
+            });
+          }
+          
+          const updatedRecord = await this.pb.collection(fromCollection).update(fromRecordId, updateData);
+          
+          return this.successResponse({ 
+            removedRelation: {
+              from: `${fromCollection}:${fromRecordId}`,
+              to: toRecordId,
+              field: relationField
+            },
+            updatedRecord
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to remove relation: ${error.message}`);
+        }
+      }
+    );
   }
 
   /**
