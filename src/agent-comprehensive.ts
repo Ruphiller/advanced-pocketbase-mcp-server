@@ -1546,7 +1546,7 @@ export class ComprehensivePocketBaseMCPAgent {
             return this.errorResponse('PocketBase not configured.');
           }
           
-          const health = await this.pb.send('/api/health', { method: 'GET' });
+          const health = await this.pb.health.check();
           return this.successResponse({ 
             status: 'healthy',
             timestamp: new Date().toISOString(),
@@ -3604,452 +3604,74 @@ export class ComprehensivePocketBaseMCPAgent {
     
     return csvRows.join('\n');
   }
+}
 
-  /**
-   * Setup comprehensive PocketBase admin tools
-   */
-  private setupPocketBaseAdminTools(): void {
-    // Already implemented in the main setupPocketBaseTools() method
-    // Admin tools include: create_collection, update_collection, delete_collection,
-    // truncate_collection, import_collections, settings management, etc.
+export default ComprehensivePocketBaseMCPAgent;
+      }    }  }  /**   * Initialize PocketBase connection   */  private async initializePocketBase(): Promise<void> {    try {      const url = this.state.configuration.pocketbaseUrl;      if (!url) return;      this.pb = new PocketBase(url);      const email = this.state.configuration.pocketbaseAdminEmail;      const password = this.state.configuration.pocketbaseAdminPassword;      if (email && password) {        try {          await this.pb.collection('_superusers').authWithPassword(email, password);          this.state.initializationState.isAuthenticated = true;        } catch (authError) {          console.warn('Admin authentication failed:', authError);        }      }
+
+      this.state.initializationState.pocketbaseInitialized = true;
+    } catch (error) {
+      console.error('PocketBase initialization failed:', error);
+    }
   }
 
   /**
-   * Setup PocketBase realtime and WebSocket tools
+   * Get current state
    */
-  private setupPocketBaseRealtimeTools(): void {
-    // Already implemented in the main setupPocketBaseTools() method
-    // Realtime tools include: create_realtime_connection, generate_realtime_subscription,
-    // subscribe_record, etc.
+  getState(): PocketBaseMCPServerState {
+    return this.state;
   }
 
   /**
-   * Setup MCP resources
+   * Helper for success responses
    */
-  private setupResources(): void {
-    // Collections resource
-    this.server.resource(
-      'pocketbase_collections',
-      'pocketbase://collections',
-      {
-        description: 'Access to all PocketBase collections and their schemas'
-      },
-      async () => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return { contents: [{ uri: 'pocketbase://collections', mimeType: 'text/plain', text: 'PocketBase not configured' }] };
-          }
-          
-          const collections = await this.pb.collections.getFullList(200);
-          return {
-            contents: [{
-              uri: 'pocketbase://collections',
-              mimeType: 'application/json',
-              text: JSON.stringify({
-                collections: collections.map(c => ({
-                  id: c.id,
-                  name: c.name,
-                  type: c.type,
-                  schema: c.schema,
-                  system: c.system
-                }))
-              }, null, 2)
-            }]
-          };
-        } catch (error: any) {
-          return { contents: [{ uri: 'pocketbase://collections', mimeType: 'text/plain', text: `Error: ${error.message}` }] };
-        }
-      }
-    );
-
-    // Health resource
-    this.server.resource(
-      'pocketbase_health',
-      'pocketbase://health',
-      {
-        description: 'PocketBase server health and status information'
-      },
-      async () => {
-        try {
-          await this.ensurePocketBase();
-          if (!this.pb) {
-            return { contents: [{ uri: 'pocketbase://health', mimeType: 'text/plain', text: 'PocketBase not configured' }] };
-          }
-          
-          const health = await this.pb.send('/api/health', { method: 'GET' });
-          return {
-            contents: [{
-              uri: 'pocketbase://health',
-              mimeType: 'application/json',
-              text: JSON.stringify({
-                status: 'healthy',
-                timestamp: new Date().toISOString(),
-                health,
-                configuration: {
-                  hasUrl: Boolean(this.state.configuration.pocketbaseUrl),
-                  hasAuth: Boolean(this.state.configuration.pocketbaseAdminEmail),
-                  isInitialized: this.state.initializationState.pocketbaseInitialized
-                }
-              }, null, 2)
-            }]
-          };
-        } catch (error: any) {
-          return { 
-            contents: [{
-              uri: 'pocketbase://health',
-              mimeType: 'application/json',
-              text: JSON.stringify({
-                status: 'unhealthy',
-                timestamp: new Date().toISOString(),
-                error: error.message
-              }, null, 2)
-            }]
-          };
-        }
-      }
-    );
-
-    // Stripe resource (if configured)
-    this.server.resource(
-      'stripe_dashboard',
-      'stripe://dashboard',
-      {
-        description: 'Information about Stripe account and recent activity'
-      },
-      async () => {
-        try {
-          await this.ensureStripe();
-          if (!this.stripeService) {
-            return { contents: [{ uri: 'stripe://dashboard', mimeType: 'text/plain', text: 'Stripe not configured. Set STRIPE_SECRET_KEY.' }] };
-          }
-          
-          // Get basic info
-          return {
-            contents: [{
-              uri: 'stripe://dashboard',
-              mimeType: 'application/json',
-              text: JSON.stringify({
-                configured: true,
-                timestamp: new Date().toISOString(),
-                message: 'Use Stripe tools to interact with your account'
-              }, null, 2)
-            }]
-          };
-        } catch (error: any) {
-          return { contents: [{ uri: 'stripe://dashboard', mimeType: 'text/plain', text: `Stripe Error: ${error.message}` }] };
-        }
-      }
-    );
-
-    // Email resource
-    this.server.resource(
-      'email_templates',
-      'email://templates',
-      {
-        description: 'Available email templates and configuration'
-      },
-      async () => {
-        try {
-          await this.ensureEmail();
-          if (!this.emailService) {
-            return { contents: [{ uri: 'email://templates', mimeType: 'text/plain', text: 'Email service not configured.' }] };
-          }
-          
-          return {
-            contents: [{
-              uri: 'email://templates',
-              mimeType: 'application/json',
-              text: JSON.stringify({
-                emailService: this.state.configuration.emailService,
-                timestamp: new Date().toISOString(),
-                message: 'Use email tools to manage templates'
-              }, null, 2)
-            }]
-          };
-        } catch (error: any) {
-          return { contents: [{ uri: 'email://templates', mimeType: 'text/plain', text: `Email Error: ${error.message}` }] };
-        }
-      }
-    );
-  }
-
-  /**
-   * Setup MCP prompts
-   */
-  private setupPrompts(): void {
-    // Database Design Prompt
-    this.server.prompt(
-      'pocketbase_design_schema',
-      'Design PocketBase Schema - Help design a complete PocketBase database schema for a specific application',
-      (extra: any) => {
-        const appType = extra.arguments?.app_type || 'generic';
-        const requirements = extra.arguments?.requirements || 'Standard functionality';
-        
-        return {
-          messages: [{
-            role: 'assistant',
-            content: {
-              type: 'text',
-              text: `# PocketBase Schema Design for ${appType.charAt(0).toUpperCase() + appType.slice(1)} Application
-
-## Requirements Analysis
-${requirements}
-
-## Recommended Collections Structure
-
-### Core Collections:
-1. **users** (auth collection)
-   - Standard user authentication
-   - Profile fields: username, email, name, avatar, bio
-   - Role-based permissions
-
-### Application-Specific Collections:
-${this.generateSchemaForAppType(appType)}
-
-## Implementation Steps:
-1. Create collections using \`pocketbase_create_collection\`
-2. Set up relations between collections
-3. Configure access rules and permissions
-4. Add validation rules for data integrity
-5. Set up real-time subscriptions for live updates
-
-## Best Practices:
-- Use descriptive field names
-- Set appropriate validation rules
-- Configure proper access controls
-- Plan for scalability with indexes
-- Consider file upload needs
-- Plan backup and migration strategies
-
-Use the PocketBase tools to implement this schema step by step.`
-            }
-          }]
-        };
-      }
-    );
-
-    // API Integration Prompt
-    this.server.prompt(
-      'pocketbase_api_integration',
-      'PocketBase API Integration Guide - Generate integration code and best practices for connecting to PocketBase',
-      (extra: any) => {
-        const platform = extra.arguments?.platform || 'web';
-        const features = extra.arguments?.features || 'basic CRUD';
-        
-        return {
-          messages: [{
-            role: 'assistant',
-            content: {
-              type: 'text',
-              text: `# PocketBase Integration Guide for ${platform.charAt(0).toUpperCase() + platform.slice(1)}
-
-## Features: ${features}
-
-## Setup and Configuration
-${this.generateIntegrationGuide(platform, features)}
-
-## Authentication Implementation
-\`\`\`javascript
-// Initialize PocketBase
-const pb = new PocketBase('${this.state.configuration.pocketbaseUrl || 'YOUR_POCKETBASE_URL'}');
-
-// Authenticate user
-const authData = await pb.collection('users').authWithPassword(email, password);
-\`\`\`
-
-## CRUD Operations
-Use the available PocketBase tools:
-- \`pocketbase_create_record\` - Create new records
-- \`pocketbase_get_record\` - Fetch single records
-- \`pocketbase_list_records\` - List and filter records
-- \`pocketbase_update_record\` - Update existing records
-- \`pocketbase_delete_record\` - Delete records
-
-## Real-time Integration
-Use \`pocketbase_subscribe_record\` and \`pocketbase_create_realtime_connection\` for live updates.
-
-## Error Handling Best Practices
-- Always handle network errors
-- Validate data before submission
-- Implement retry logic for failed requests
-- Use proper authentication checks`
-            }
-          }]
-        };
-      }
-    );
-
-    // Ecommerce Setup Prompt
-    this.server.prompt(
-      'ecommerce_complete_setup',
-      'Complete Ecommerce Setup - Set up a complete ecommerce solution with PocketBase and Stripe',
-      (extra: any) => {
-        const storeName = extra.arguments?.store_name || 'My Store';
-        const productsType = extra.arguments?.products_type || 'physical';
-        
-        return {
-          messages: [{
-            role: 'assistant',
-            content: {
-              type: 'text',
-              text: `# Complete Ecommerce Setup for ${storeName}
-
-## Product Type: ${productsType}
-
-## Step 1: PocketBase Collections Setup
-Use these tools to create your ecommerce schema:
-1. \`pocketbase_get_collection_scaffolds\` with type "ecommerce"
-2. \`pocketbase_create_collection\` for products, orders, customers
-3. \`pocketbase_create_relation\` to link products to orders
-
-## Step 2: Stripe Integration
-1. \`stripe_create_product\` - Set up products in Stripe
-2. \`stripe_create_checkout_session\` - Handle payments
-3. \`stripe_handle_webhook\` - Process payment confirmations
-
-## Step 3: Order Management
-- \`pocketbase_create_record\` in orders collection
-- \`email_send_templated\` for order confirmations
-- \`pocketbase_subscribe_record\` for real-time order updates
-
-## Step 4: Inventory Management
-- Track stock levels in product records
-- Use \`pocketbase_update_record\` to adjust inventory
-- Set up alerts for low stock
-
-## Implementation Order:
-1. Create database schema
-2. Set up Stripe products
-3. Implement payment flow
-4. Add email notifications
-5. Set up admin dashboard
-6. Test complete flow
-
-This creates a production-ready ecommerce solution!`
-            }
-          }]
-        };
-      }
-    );
-  }
-
-  private generateSchemaForAppType(appType: string): string {
-    const schemas: Record<string, string> = {
-      blog: `
-2. **posts** (base collection)
-   - title, slug, content, excerpt, status
-   - featured_image, published_at, author relation
-   - tags (JSON field), categories relation
-
-3. **categories** (base collection)
-   - name, slug, description, parent_category
-
-4. **comments** (base collection)
-   - content, author, post relation, status
-   - parent_comment for nested comments`,
-      
-      ecommerce: `
-2. **products** (base collection)
-   - name, sku, description, price, sale_price
-   - images, stock_quantity, category relation
-   - attributes (JSON), status
-
-3. **categories** (base collection)
-   - name, slug, description, parent_category
-
-4. **orders** (base collection)
-   - order_number, customer, total_amount, status
-   - shipping_address, payment_status, items (JSON)
-
-5. **customers** (base collection)
-   - name, email, phone, default_address
-   - order_history, preferences (JSON)`,
-      
-      social: `
-2. **posts** (base collection)
-   - content, author relation, media_files
-   - likes_count, comments_count, visibility
-
-3. **follows** (base collection)
-   - follower relation, following relation, created_at
-
-4. **comments** (base collection)
-   - content, author, post relation, parent_comment
-   - likes_count, created_at
-
-5. **messages** (base collection)
-   - content, sender, recipient, read_status
-   - conversation_id, message_type`,
-      
-      cms: `
-2. **pages** (base collection)
-   - title, slug, content, template, status
-   - meta_title, meta_description, featured_image
-   - parent_page, menu_order
-
-3. **media** (base collection)
-   - filename, title, alt_text, file_size
-   - file_type, uploaded_by, folder
-
-4. **menus** (base collection)
-   - name, location, items (JSON structure)
-   - status, created_by`
+  private successResponse(data: any) {
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({ success: true, ...data }, null, 2)
+      }]
     };
-    
-    return schemas[appType] || `
-2. **content** (base collection)
-   - title, description, content, status
-   - created_by relation, category, tags
-
-3. **categories** (base collection)
-   - name, description, parent_category
-
-4. **settings** (base collection)
-   - key, value, type, description`;
   }
 
-  private generateIntegrationGuide(platform: string, features: string): string {
-    const guides: Record<string, string> = {
-      web: `
-### JavaScript/TypeScript Setup
-\`\`\`bash
-npm install pocketbase
-\`\`\`
-
-### Basic Configuration
-\`\`\`javascript
-import PocketBase from 'pocketbase';
-const pb = new PocketBase('${this.state.configuration.pocketbaseUrl || 'YOUR_POCKETBASE_URL'}');
-\`\`\``,
-      
-      mobile: `
-### React Native Setup
-\`\`\`bash
-npm install pocketbase react-native-url-polyfill
-\`\`\`
-
-### Configuration with Polyfill
-\`\`\`javascript
-import 'react-native-url-polyfill/auto';
-import PocketBase from 'pocketbase';
-const pb = new PocketBase('${this.state.configuration.pocketbaseUrl || 'YOUR_POCKETBASE_URL'}');
-\`\`\``,
-      
-      backend: `
-### Node.js Backend Setup
-\`\`\`bash
-npm install pocketbase node-fetch
-\`\`\`
-
-### Server Configuration
-\`\`\`javascript
-const PocketBase = require('pocketbase');
-const pb = new PocketBase('${this.state.configuration.pocketbaseUrl || 'YOUR_POCKETBASE_URL'}');
-\`\`\``
+  /**
+   * Helper for error responses
+   */
+  private errorResponse(message: string) {
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          success: false,
+          error: message,
+          timestamp: new Date().toISOString()
+        })
+      }]
     };
+  }
+
+  /**
+   * Helper to convert records to CSV format
+   */
+  private recordsToCSV(records: any[]): string {
+    if (records.length === 0) return '';
     
-    return guides[platform] || guides.web;
+    const headers = Object.keys(records[0]);
+    const csvRows = [headers.join(',')];
+    
+    for (const record of records) {
+      const values = headers.map(header => {
+        const value = record[header];
+        // Escape quotes and wrap in quotes if contains comma
+        if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      });
+      csvRows.push(values.join(','));
+    }
+    
+    return csvRows.join('\n');
   }
 }
 
