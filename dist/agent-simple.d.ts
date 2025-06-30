@@ -85,6 +85,10 @@ declare class PocketBaseMCPAgent {
      */
     private setupStripeTools;
     /**
+     * Setup Email-related tools
+     */
+    private setupEmailTools;
+    /**
      * Setup resource handlers
      */
     private setupResources;
@@ -104,6 +108,14 @@ declare class PocketBaseMCPAgent {
      * Clean up resources
      */
     cleanup(): Promise<void>;
+    /**
+     * Lazy load Stripe service if environment variables are available
+     */
+    private ensureStripeService;
+    /**
+     * Lazy load Email service if environment variables are available
+     */
+    private ensureEmailService;
 }
 /**
  * Create and configure a new agent instance

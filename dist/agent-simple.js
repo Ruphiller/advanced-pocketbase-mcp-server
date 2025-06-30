@@ -449,17 +449,14 @@ class PocketBaseMCPAgent {
                 throw new Error(`Failed to create record: ${error.message}`);
             }
         });
-        // Add Stripe tools if available
-        if (this.stripeService) {
-            this.setupStripeTools();
-        }
+        // Always register all tools (lazy loading approach)
+        this.setupStripeTools();
+        this.setupEmailTools();
     }
     /**
      * Setup Stripe-related tools
      */
     setupStripeTools() {
-        if (!this.stripeService)
-            return;
         this.server.tool('create_stripe_customer', {
             description: 'Create a new customer in Stripe',
             inputSchema: {
@@ -467,8 +464,10 @@ class PocketBaseMCPAgent {
                 name: z.string().optional().describe('Customer name')
             }
         }, async ({ email, name }) => {
+            // Lazy load Stripe service
+            await this.ensureStripeService();
             if (!this.stripeService) {
-                throw new Error('Stripe service not initialized');
+                throw new Error('Stripe service not available. Please set STRIPE_SECRET_KEY environment variable.');
             }
             try {
                 const customer = await this.stripeService.createCustomer({ email, name });
@@ -481,6 +480,170 @@ class PocketBaseMCPAgent {
             }
             catch (error) {
                 throw new Error(`Failed to create Stripe customer: ${error.message}`);
+            }
+        });
+        this.server.tool('create_stripe_payment_intent', {
+            description: 'Create a Stripe payment intent for processing payments',
+            inputSchema: {
+                amount: z.number().int().positive().describe('Amount in cents (e.g., 2000 for $20.00)'),
+                currency: z.string().length(3).describe('Three-letter currency code (e.g., USD)'),
+                description: z.string().optional().describe('Optional description for the payment')
+            }
+        }, async ({ amount, currency, description }) => {
+            // Lazy load Stripe service
+            await this.ensureStripeService();
+            if (!this.stripeService) {
+                throw new Error('Stripe service not available. Please set STRIPE_SECRET_KEY environment variable.');
+            }
+            try {
+                const paymentIntent = await this.stripeService.createPaymentIntent({
+                    amount,
+                    currency,
+                    description
+                });
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                paymentIntent: {
+                                    paymentIntentId: paymentIntent.paymentIntentId,
+                                    clientSecret: paymentIntent.clientSecret
+                                }
+                            }, null, 2)
+                        }]
+                };
+            }
+            catch (error) {
+                throw new Error(`Failed to create payment intent: ${error.message}`);
+            }
+        });
+        this.server.tool('create_stripe_product', {
+            description: 'Create a new product in Stripe',
+            inputSchema: {
+                name: z.string().describe('Product name'),
+                description: z.string().optional().describe('Product description'),
+                price: z.number().int().positive().describe('Price in cents'),
+                currency: z.string().length(3).optional().describe('Currency code (default: USD)'),
+                interval: z.enum(['month', 'year', 'week', 'day']).optional().describe('Billing interval for subscriptions')
+            }
+        }, async ({ name, description, price, currency, interval }) => {
+            // Lazy load Stripe service
+            await this.ensureStripeService();
+            if (!this.stripeService) {
+                throw new Error('Stripe service not available. Please set STRIPE_SECRET_KEY environment variable.');
+            }
+            try {
+                const product = await this.stripeService.createProduct({
+                    name,
+                    description,
+                    price,
+                    currency: currency || 'usd',
+                    interval
+                });
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                product
+                            }, null, 2)
+                        }]
+                };
+            }
+            catch (error) {
+                throw new Error(`Failed to create product: ${error.message}`);
+            }
+        });
+    }
+    /**
+     * Setup Email-related tools
+     */
+    setupEmailTools() {
+        this.server.tool('send_templated_email', {
+            description: 'Send a templated email using the configured email service',
+            inputSchema: {
+                template: z.string().describe('Email template name'),
+                to: z.string().email().describe('Recipient email address'),
+                from: z.string().email().optional().describe('Sender email address'),
+                subject: z.string().optional().describe('Custom email subject'),
+                variables: z.record(z.unknown()).optional().describe('Template variables')
+            }
+        }, async ({ template, to, from, subject, variables }) => {
+            // Lazy load Email service
+            await this.ensureEmailService();
+            if (!this.emailService) {
+                throw new Error('Email service not available. Please configure EMAIL_SERVICE or SMTP settings.');
+            }
+            try {
+                const result = await this.emailService.sendTemplatedEmail({
+                    template,
+                    to,
+                    from,
+                    customSubject: subject,
+                    variables
+                });
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                emailLog: {
+                                    id: result.id,
+                                    to: result.to,
+                                    subject: result.subject,
+                                    status: result.status,
+                                    sentAt: result.created
+                                }
+                            }, null, 2)
+                        }]
+                };
+            }
+            catch (error) {
+                throw new Error(`Failed to send email: ${error.message}`);
+            }
+        });
+        this.server.tool('send_custom_email', {
+            description: 'Send a custom email with specified content',
+            inputSchema: {
+                to: z.string().email().describe('Recipient email address'),
+                from: z.string().email().optional().describe('Sender email address'),
+                subject: z.string().describe('Email subject'),
+                html: z.string().describe('HTML email body'),
+                text: z.string().optional().describe('Plain text email body')
+            }
+        }, async ({ to, from, subject, html, text }) => {
+            // Lazy load Email service
+            await this.ensureEmailService();
+            if (!this.emailService) {
+                throw new Error('Email service not available. Please configure EMAIL_SERVICE or SMTP settings.');
+            }
+            try {
+                const result = await this.emailService.sendCustomEmail({
+                    to,
+                    from,
+                    subject,
+                    html,
+                    text
+                });
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                emailLog: {
+                                    id: result.id,
+                                    to: result.to,
+                                    subject: result.subject,
+                                    status: result.status,
+                                    sentAt: result.created
+                                }
+                            }, null, 2)
+                        }]
+                };
+            }
+            catch (error) {
+                throw new Error(`Failed to send email: ${error.message}`);
             }
         });
     }
@@ -555,6 +718,36 @@ class PocketBaseMCPAgent {
             }
             catch (error) {
                 console.warn('Error clearing auth store:', error);
+            }
+        }
+    }
+    /**
+     * Lazy load Stripe service if environment variables are available
+     */
+    async ensureStripeService() {
+        if (this.stripeService)
+            return;
+        if (this.state.configuration?.stripeSecretKey && this.pb) {
+            try {
+                this.stripeService = new StripeService(this.pb);
+            }
+            catch (error) {
+                console.warn('Failed to initialize Stripe service:', error);
+            }
+        }
+    }
+    /**
+     * Lazy load Email service if environment variables are available
+     */
+    async ensureEmailService() {
+        if (this.emailService)
+            return;
+        if ((this.state.configuration?.emailService || this.state.configuration?.smtpHost) && this.pb) {
+            try {
+                this.emailService = new EmailService(this.pb);
+            }
+            catch (error) {
+                console.warn('Failed to initialize Email service:', error);
             }
         }
     }
