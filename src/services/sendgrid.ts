@@ -1,5 +1,5 @@
 // Enhanced SendGrid Service - Works alongside existing EmailService
-import sgMail = require('@sendgrid/mail');
+import sgMail from '@sendgrid/mail';
 import PocketBase from 'pocketbase';
 import { EmailTemplate, EmailLog } from '../types/stripe.js';
 
