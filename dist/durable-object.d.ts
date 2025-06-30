@@ -51,9 +51,23 @@ export declare class PocketBaseMCPDurableObject {
      */
     private handleWebSocket;
     /**
-     * Process MCP messages (simplified implementation)
+     * Process MCP messages using proper MCP protocol
      */
     private processMCPMessage;
+    /**
+     * Execute a specific tool with given arguments
+     */
+    private executeTool;
+    /**
+     * Tool implementations
+     */
+    private toolListCollections;
+    private toolCreateRecord;
+    private toolGetRecord;
+    private toolListRecords;
+    private toolUpdateRecord;
+    private toolDeleteRecord;
+    private toolGetStatus;
     /**
      * Handle health check requests
      */
@@ -63,7 +77,7 @@ export declare class PocketBaseMCPDurableObject {
      */
     private handleMCPRequest;
     /**
-     * Handle Server-Sent Events (SSE) for MCP connections
+     * Handle MCP over HTTP requests (SSE endpoint)
      */
     private handleSSE;
     /**
@@ -98,5 +112,9 @@ export declare class PocketBaseMCPDurableObject {
      * Handle WebSocket error events
      */
     webSocketError(ws: any, error: Error): Promise<void>;
+    /**
+     * Get or create PocketBase instance
+     */
+    private getPocketBaseInstance;
 }
 export default PocketBaseMCPDurableObject;
