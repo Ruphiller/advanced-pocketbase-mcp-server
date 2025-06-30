@@ -1,4 +1,4 @@
-export default {
+module.exports = {
   esbuild: {
     // Mark Cloudflare Workers specific packages as external for Smithery
     external: [
