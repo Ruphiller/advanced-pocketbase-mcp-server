@@ -3,14 +3,13 @@
  * 
  * This file provides the Smithery-compatible entry point for the
  * Advanced PocketBase MCP Server, enabling deployment to Smithery's
- * managed hosting platform.
+ * managed hosting platform with all 100+ tools.
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { WorkerCompatiblePocketBaseMCPAgent } from './agent-worker-compatible.js';
+import { ComprehensivePocketBaseMCPAgent } from './agent-comprehensive.js';
 
-// Configuration schema for Smithery
+// Configuration schema for Smithery (matches smithery.yaml)
 export const configSchema = z.object({
   pocketbaseUrl: z.string().min(1).describe("PocketBase instance URL (e.g., https://your-pb.com)"),
   adminEmail: z.string().optional().describe("Admin email for elevated operations (enables super admin authentication)"),
@@ -19,234 +18,52 @@ export const configSchema = z.object({
 }).strict();
 
 export default function ({ config }: { config: z.infer<typeof configSchema> }) {
-  const server = new McpServer({
-    name: 'Advanced PocketBase MCP Server',
-    version: '4.0.0'
-  });
-
-  // Initialize the agent with configuration (lazy loading)
-  let agent: WorkerCompatiblePocketBaseMCPAgent | null = null;
-
-  const initializeAgent = async () => {
-    if (!agent) {
-      // Validate config before using it
-      const validatedConfig = configSchema.parse(config);
-      
-      // Additional URL validation for actual usage (not just testing)
-      if (validatedConfig.pocketbaseUrl === "string" || !validatedConfig.pocketbaseUrl.startsWith('http')) {
-        throw new Error(`Invalid PocketBase URL: ${validatedConfig.pocketbaseUrl}. Please provide a valid HTTP/HTTPS URL.`);
-      }
-      
-      agent = new WorkerCompatiblePocketBaseMCPAgent();
-      
-      // Configure agent with Smithery configuration
-      await agent.init({
-        pocketbaseUrl: validatedConfig.pocketbaseUrl,
-        adminEmail: validatedConfig.adminEmail,
-        adminPassword: validatedConfig.adminPassword
-      });
-      
-      if (validatedConfig.debug) {
-        console.log('🚀 Advanced PocketBase MCP Server initialized with Smithery configuration');
-        console.log('📊 Configuration:', {
-          pocketbaseUrl: validatedConfig.pocketbaseUrl,
-          hasAdminCredentials: Boolean(validatedConfig.adminEmail && validatedConfig.adminPassword),
-          debugMode: validatedConfig.debug
-        });
-      }
-    }
-    return agent;
-  };
-
-  // Add all PocketBase tools
-  server.tool(
-    'pocketbase_list_collections',
-    'List all available PocketBase collections',
-    {},
-    async () => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'pocketbase_list_collections', {});
-    }
-  );
-
-  server.tool(
-    'pocketbase_create_record',
-    'Create a new record in a collection',
-    {
-      collection: z.string().describe('Collection name'),
-      data: z.record(z.any()).describe('Record data')
-    },
-    async ({ collection, data }) => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'pocketbase_create_record', { collection, data });
-    }
-  );
-
-  server.tool(
-    'pocketbase_get_record',
-    'Get a specific record by ID',
-    {
-      collection: z.string().describe('Collection name'),
-      id: z.string().describe('Record ID')
-    },
-    async ({ collection, id }) => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'pocketbase_get_record', { collection, id });
-    }
-  );
-
-  server.tool(
-    'pocketbase_list_records',
-    'List records with filtering and pagination',
-    {
-      collection: z.string().describe('Collection name'),
-      page: z.number().optional().describe('Page number (default: 1)'),
-      perPage: z.number().optional().describe('Records per page (default: 30)'),
-      filter: z.string().optional().describe('Filter query'),
-      sort: z.string().optional().describe('Sort criteria')
-    },
-    async ({ collection, page, perPage, filter, sort }) => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'pocketbase_list_records', { collection, page, perPage, filter, sort });
-    }
-  );
-
-  server.tool(
-    'pocketbase_update_record',
-    'Update an existing record',
-    {
-      collection: z.string().describe('Collection name'),
-      id: z.string().describe('Record ID'),
-      data: z.record(z.any()).describe('Updated data')
-    },
-    async ({ collection, id, data }) => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'pocketbase_update_record', { collection, id, data });
-    }
-  );
-
-  server.tool(
-    'pocketbase_delete_record',
-    'Delete a record by ID',
-    {
-      collection: z.string().describe('Collection name'),
-      id: z.string().describe('Record ID')
-    },
-    async ({ collection, id }) => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'pocketbase_delete_record', { collection, id });
-    }
-  );
-
-  // Diagnostic and admin tools
-  server.tool(
-    'debug_pocketbase_auth',
-    'Test authentication and connection status',
-    {},
-    async () => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'debug_pocketbase_auth', {});
-    }
-  );
-
-  server.tool(
-    'check_pocketbase_write_permissions',
-    'Analyze write operation capabilities',
-    {},
-    async () => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'check_pocketbase_write_permissions', {});
-    }
-  );
-
-  server.tool(
-    'analyze_pocketbase_capabilities',
-    'Document available vs restricted operations',
-    {},
-    async () => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'analyze_pocketbase_capabilities', {});
-    }
-  );
-
-  server.tool(
-    'pocketbase_super_admin_auth',
-    'Authenticate as super admin at runtime (enables admin operations)',
-    {
-      email: z.string().email().optional().describe('Admin email (overrides config)'),
-      password: z.string().optional().describe('Admin password (overrides config)')
-    },
-    async ({ email, password }) => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'pocketbase_super_admin_auth', { email, password });
-    }
-  );
-
-  server.tool(
-    'get_server_status',
-    'Get comprehensive server status and configuration',
-    {},
-    async () => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'get_server_status', {});
-    }
-  );
-
-  server.tool(
-    'health_check',
-    'Simple health check endpoint',
-    {},
-    async () => {
-      const agentInstance = await initializeAgent();
-      return await executeAgentTool(agentInstance, 'health_check', {});
-    }
-  );
-
-  // Helper function to execute agent tools
-  async function executeAgentTool(agentInstance: WorkerCompatiblePocketBaseMCPAgent, toolName: string, args: any) {
-    try {
-      const validatedConfig = configSchema.parse(config);
-      
-      // Check if this is a test configuration from Smithery
-      if (validatedConfig.pocketbaseUrl === "string" || !validatedConfig.pocketbaseUrl.startsWith('http')) {
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Tool ${toolName} is available but not executable with test configuration. Please configure with a valid PocketBase URL.`
-          }]
-        };
-      }
-      
-      // Create a mock MCP request
-      const mockRequest = {
-        jsonrpc: '2.0' as const,
-        id: 1,
-        method: 'tools/call',
-        params: {
-          name: toolName,
-          arguments: args
-        }
-      };
-
-      // Execute the tool (this would need to be implemented based on the agent's interface)
-      // For now, return a success response indicating the tool is available
-      return {
-        content: [{
-          type: 'text' as const,
-          text: `Tool ${toolName} executed with Smithery configuration. PocketBase URL: ${validatedConfig.pocketbaseUrl}`
-        }]
-      };
-    } catch (error: any) {
-      console.error(`Smithery tool execution error for ${toolName}:`, error);
-      return {
-        content: [{
-          type: 'text' as const,
-          text: `Tool execution failed: ${error.message}`
-        }],
-        isError: true
-      };
-    }
+  // Validate configuration
+  const validatedConfig = configSchema.parse(config);
+  
+  // Additional validation for actual URLs (but allow test values during Smithery's validation)
+  if (validatedConfig.pocketbaseUrl !== "string" && 
+      !validatedConfig.pocketbaseUrl.startsWith('http://') && 
+      !validatedConfig.pocketbaseUrl.startsWith('https://')) {
+    console.warn(`Warning: Invalid PocketBase URL format: ${validatedConfig.pocketbaseUrl}`);
   }
 
-  return server.server;
+  // Initialize the comprehensive agent with all 100+ tools
+  const agent = new ComprehensivePocketBaseMCPAgent();
+  
+  // Set up environment variables for the agent
+  const env = {
+    POCKETBASE_URL: validatedConfig.pocketbaseUrl,
+    POCKETBASE_ADMIN_EMAIL: validatedConfig.adminEmail,
+    POCKETBASE_ADMIN_PASSWORD: validatedConfig.adminPassword,
+    NODE_ENV: 'production'
+  };
+
+  // Initialize the agent asynchronously
+  agent.init(env).then(() => {
+    if (validatedConfig.debug) {
+      console.log('🚀 Advanced PocketBase MCP Server initialized with Smithery configuration');
+      console.log('📊 Configuration:', {
+        pocketbaseUrl: validatedConfig.pocketbaseUrl,
+        hasAdminCredentials: Boolean(validatedConfig.adminEmail && validatedConfig.adminPassword),
+        debugMode: validatedConfig.debug,
+        totalTools: '100+',
+        features: [
+          'PocketBase CRUD Operations (30+ tools)',
+          'Admin & Authentication Tools (20+ tools)', 
+          'Real-time & WebSocket Tools (10+ tools)',
+          'Stripe Payment Processing (25+ tools)',
+          'Email & Communication Tools (15+ tools)',
+          'Utility & Diagnostic Tools (10+ tools)',
+          'Resources & Prompts'
+        ]
+      });
+    }
+  }).catch((error) => {
+    console.error('❌ Failed to initialize Advanced PocketBase MCP Server:', error);
+    // Don't throw here - let the server start and handle errors gracefully per tool
+  });
+
+  // Return the comprehensive server with all 100+ tools, resources, and prompts
+  return agent.server;
 }
