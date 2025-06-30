@@ -10,7 +10,7 @@
 
 /// <reference types="@cloudflare/workers-types" />
 
-import { WorkerCompatiblePocketBaseMCPAgent } from './agent-worker-compatible.js';
+import { ComprehensivePocketBaseMCPAgent } from './agent-comprehensive.js';
 import PocketBase from 'pocketbase';
 
 // Define types for Cloudflare Workers environment
@@ -38,7 +38,7 @@ export interface AgentState {
 }
 
 export class PocketBaseMCPDurableObject {
-  private agent: WorkerCompatiblePocketBaseMCPAgent | null = null;
+  private agent: ComprehensivePocketBaseMCPAgent | null = null;
   private pb: PocketBase | null = null;
   private state: DurableObjectState;
   private env: Env;
@@ -57,7 +57,7 @@ export class PocketBaseMCPDurableObject {
   /**
    * Initialize the MCP agent with persistent state
    */
-  private async initializeAgent(): Promise<WorkerCompatiblePocketBaseMCPAgent> {
+  private async initializeAgent(): Promise<ComprehensivePocketBaseMCPAgent> {
     if (this.agent) {
       return this.agent;
     }
@@ -66,7 +66,7 @@ export class PocketBaseMCPDurableObject {
     const storedState = await this.state.storage.get('agentState') as AgentState;
     
     // Create agent with restored state
-    this.agent = new WorkerCompatiblePocketBaseMCPAgent();
+    this.agent = new ComprehensivePocketBaseMCPAgent();
     
     // Initialize with environment configuration
     const config = {
@@ -878,13 +878,13 @@ export class PocketBaseMCPDurableObject {
       { name: 'pocketbase_upload_file', description: 'Upload a file to a record', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, recordId: { type: 'string', description: 'Record ID' }, field: { type: 'string', description: 'File field name' }, file: { type: 'string', description: 'File content (base64 encoded)' }, filename: { type: 'string', description: 'Original filename' } }, required: ['collection', 'recordId', 'field', 'file', 'filename'] } },
       { name: 'pocketbase_delete_file', description: 'Delete a file from a record', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, recordId: { type: 'string', description: 'Record ID' }, field: { type: 'string', description: 'File field name' }, filename: { type: 'string', description: 'Filename to delete' } }, required: ['collection', 'recordId', 'field', 'filename'] } },
       { name: 'pocketbase_subscribe_record', description: 'Subscribe to record changes (returns subscription info)', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, recordId: { type: 'string', description: 'Record ID' } }, required: ['collection', 'recordId'] } },
-      { name: 'pocketbase_create_collection', description: 'Create a new collection (admin only)', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Collection name' }, type: { type: 'string', description: 'Collection type (base, auth, view)' }, schema: { type: 'array', description: 'Collection schema fields' }, options: { type: 'object', description: 'Collection options' } }, required: ['name', 'type'] } },
-      { name: 'pocketbase_update_collection', description: 'Update collection schema (admin only)', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Collection ID' }, name: { type: 'string', description: 'Collection name' }, schema: { type: 'array', description: 'Updated schema fields' }, options: { type: 'object', description: 'Collection options' } }, required: ['id'] } },
+      { name: 'pocketbase_create_collection', description: 'Create a new collection (admin only)', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Collection name' }, type: { type: 'string', description: 'Collection type (base, auth, view)' }, schema: { type: 'array', items: { type: 'object' }, description: 'Collection schema fields' }, options: { type: 'object', description: 'Collection options' } }, required: ['name', 'type'] } },
+      { name: 'pocketbase_update_collection', description: 'Update collection schema (admin only)', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Collection ID' }, name: { type: 'string', description: 'Collection name' }, schema: { type: 'array', items: { type: 'object' }, description: 'Updated schema fields' }, options: { type: 'object', description: 'Collection options' } }, required: ['id'] } },
       { name: 'pocketbase_delete_collection', description: 'Delete a collection (admin only)', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Collection ID' } }, required: ['id'] } },
       { name: 'pocketbase_export_collection', description: 'Export collection data as JSON', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, format: { type: 'string', description: 'Export format (json, csv)', enum: ['json', 'csv'] } }, required: ['collection'] } },
-      { name: 'pocketbase_batch_create', description: 'Create multiple records in batch', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, records: { type: 'array', description: 'Array of record data objects' } }, required: ['collection', 'records'] } },
-      { name: 'pocketbase_batch_update', description: 'Update multiple records in batch', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, updates: { type: 'array', description: 'Array of {id, data} objects' } }, required: ['collection', 'updates'] } },
-      { name: 'pocketbase_search_records', description: 'Search records with full-text search', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, query: { type: 'string', description: 'Search query' }, fields: { type: 'array', description: 'Fields to search in' }, limit: { type: 'number', description: 'Maximum results' } }, required: ['collection', 'query'] } },
+      { name: 'pocketbase_batch_create', description: 'Create multiple records in batch', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, records: { type: 'array', items: { type: 'object' }, description: 'Array of record data objects' } }, required: ['collection', 'records'] } },
+      { name: 'pocketbase_batch_update', description: 'Update multiple records in batch', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, updates: { type: 'array', items: { type: 'object' }, description: 'Array of {id, data} objects' } }, required: ['collection', 'updates'] } },
+      { name: 'pocketbase_search_records', description: 'Search records with full-text search', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' }, query: { type: 'string', description: 'Search query' }, fields: { type: 'array', items: { type: 'string' }, description: 'Fields to search in' }, limit: { type: 'number', description: 'Maximum results' } }, required: ['collection', 'query'] } },
       { name: 'pocketbase_get_stats', description: 'Get collection statistics', inputSchema: { type: 'object', properties: { collection: { type: 'string', description: 'Collection name' } }, required: ['collection'] } },
       
       // Stripe tools
@@ -903,8 +903,8 @@ export class PocketBaseMCPDurableObject {
       // Email tools
       { name: 'email_send_templated', description: 'Send a templated email', inputSchema: { type: 'object', properties: { template: { type: 'string', description: 'Template name' }, to: { type: 'string', description: 'Recipient email' }, from: { type: 'string', description: 'Sender email' }, variables: { type: 'object', description: 'Template variables' } }, required: ['template', 'to'] } },
       { name: 'email_send_simple', description: 'Send a custom email', inputSchema: { type: 'object', properties: { to: { type: 'string', description: 'Recipient email' }, subject: { type: 'string', description: 'Email subject' }, htmlContent: { type: 'string', description: 'Email HTML content' }, textContent: { type: 'string', description: 'Email text content' }, from: { type: 'string', description: 'Sender email' } }, required: ['to', 'subject', 'htmlContent'] } },
-      { name: 'email_send_bulk', description: 'Send bulk emails', inputSchema: { type: 'object', properties: { emails: { type: 'array', description: 'Array of email objects' }, batchSize: { type: 'number', description: 'Batch size for sending' } }, required: ['emails'] } },
-      { name: 'email_create_template', description: 'Create an email template', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Template name' }, subject: { type: 'string', description: 'Email subject template' }, body: { type: 'string', description: 'Email body template (HTML)' }, variables: { type: 'array', description: 'Template variable names' }, description: { type: 'string', description: 'Template description' } }, required: ['name', 'subject', 'body'] } },
+      { name: 'email_send_bulk', description: 'Send bulk emails', inputSchema: { type: 'object', properties: { emails: { type: 'array', items: { type: 'object' }, description: 'Array of email objects' }, batchSize: { type: 'number', description: 'Batch size for sending' } }, required: ['emails'] } },
+      { name: 'email_create_template', description: 'Create an email template', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Template name' }, subject: { type: 'string', description: 'Email subject template' }, body: { type: 'string', description: 'Email body template (HTML)' }, variables: { type: 'array', items: { type: 'string' }, description: 'Template variable names' }, description: { type: 'string', description: 'Template description' } }, required: ['name', 'subject', 'body'] } },
       
       // Utility tools
       { name: 'get_server_status', description: 'Get comprehensive server status and configuration', inputSchema: { type: 'object', properties: {} } },

@@ -557,7 +557,7 @@ export class ComprehensivePocketBaseMCPAgent {
         properties: {
           name: { type: 'string', description: 'Collection name' },
           type: { type: 'string', description: 'Collection type (base, auth, view)' },
-          schema: { type: 'array', description: 'Collection schema fields' },
+          schema: { type: 'array', items: { type: 'object' }, description: 'Collection schema fields' },
           options: { type: 'object', description: 'Collection options' }
         },
         required: ['name', 'type']
