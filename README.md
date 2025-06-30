@@ -2,7 +2,7 @@
 
 [![smithery badge](https://smithery.ai/badge/pocketbase-server)](https://smithery.ai/server/pocketbase-server)
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourusername/advanced-pocketbase-mcp-server)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/your-username/advanced-pocketbase-mcp-server)
 
 A comprehensive MCP server that provides sophisticated tools for interacting with PocketBase databases. This server enables advanced database operations, schema management, and data manipulation through the Model Context Protocol (MCP). **Now with full Cloudflare Workers support and Durable Objects for serverless deployment!**
 
@@ -204,16 +204,41 @@ This release ensures the Advanced PocketBase MCP Server is fully compatible with
 
 ## 🚀 Deployment Options
 
-### Cloudflare Workers (Recommended for Production)
+### Smithery Platform (Managed Hosting) ⭐ **Recommended for Beginners**
+
+Deploy to Smithery's managed platform for hosted MCP servers with zero infrastructure management:
+
+[![Deploy to Smithery](https://smithery.ai/badge/deploy)](https://smithery.ai/server/pocketbase-server)
+
+**Benefits:**
+- 🌐 Hosted MCP server with interactive web playground
+- 🔧 Zero infrastructure or deployment complexity
+- 🔍 Built-in testing and discovery tools
+- 📊 Usage analytics and monitoring dashboard
+- 🛡️ Automatic security updates and maintenance
+
+**Quick Setup:**
+1. Visit [Smithery PocketBase Server](https://smithery.ai/server/pocketbase-server)
+2. Click "Deploy" and connect your GitHub account
+3. Configure your PocketBase URL and optional admin credentials
+4. Start using immediately with the web playground
+
+**Configuration Options:**
+- `pocketbaseUrl`: Your PocketBase instance URL (required)
+- `adminEmail`: Admin email for elevated operations (optional)
+- `adminPassword`: Admin password for elevated operations (optional)
+- `debug`: Enable debug logging (optional, default: false)
+
+### Cloudflare Workers (Production Scale)
 
 Deploy to Cloudflare's global edge network with Durable Objects for stateful MCP sessions:
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourusername/advanced-pocketbase-mcp-server)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/your-username/advanced-pocketbase-mcp-server)
 
 **Quick Deploy:**
 ```bash
 # Clone and deploy
-git clone https://github.com/yourusername/advanced-pocketbase-mcp-server
+git clone https://github.com/your-username/advanced-pocketbase-mcp-server
 cd advanced-pocketbase-mcp-server
 npm install
 npm run build
@@ -333,14 +358,48 @@ After using `pocketbase_super_admin_auth`, these admin-level operations become a
 
 ## Configuration
 
-The server requires the following environment variables:
+### Smithery Platform (Managed Hosting)
+Configure through Smithery's web interface when deploying:
 
+**Required:**
+- `pocketbaseUrl`: Your PocketBase instance URL
+
+**Optional:**
+- `adminEmail`: Admin email for super admin authentication
+- `adminPassword`: Admin password for elevated operations
+- `debug`: Enable debug logging for troubleshooting
+
+### Node.js Deployment
+Required environment variables:
 - `POCKETBASE_URL`: URL of your PocketBase instance (e.g., "http://127.0.0.1:8090")
 
 Optional environment variables:
 - `POCKETBASE_ADMIN_EMAIL`: Admin email for certain operations
 - `POCKETBASE_ADMIN_PASSWORD`: Admin password
 - `POCKETBASE_DATA_DIR`: Custom data directory path
+
+### Cloudflare Workers Deployment
+Configure in `wrangler.toml` or through Cloudflare dashboard:
+
+```toml
+[env.production.vars]
+POCKETBASE_URL = "https://your-pocketbase-instance.com"
+POCKETBASE_ADMIN_EMAIL = "admin@example.com"
+
+[env.production.secrets]
+POCKETBASE_ADMIN_PASSWORD = "your-super-secure-password"
+```
+
+**Environment-specific considerations:**
+- **Development**: Use local PocketBase instance with full admin access
+- **Production**: Use hosted PocketBase with potential admin restrictions
+- **Edge**: Cloudflare Workers provide global deployment with Durable Objects
+
+### Production Security & Super Admin Authentication
+- Admin credentials enable the `pocketbase_super_admin_auth` tool
+- Production environments may restrict admin API access for security
+- Use diagnostic tools (`analyze_pocketbase_capabilities`) to understand your deployment
+- The super admin tool bypasses production restrictions when credentials are valid
 
 ## Usage Examples
 
@@ -541,19 +600,86 @@ The server includes TypeScript definitions for all operations, ensuring type saf
 
 ## Development
 
+### Smithery Platform Development
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Install Smithery CLI: `npm install -g @smithery/cli` 
+4. Start development server: `npm run smithery:dev`
+5. Open the auto-generated playground URL to test
+
+### Local Development (Node.js)
 1. Clone the repository
 2. Install dependencies: `npm install`
 3. Copy `.env.example` to `.env` and configure
 4. Build: `npm run build`
 5. Start your PocketBase instance
-6. The MCP server will automatically connect to your PocketBase instance
+6. Run: `npm start`
+
+### Cloudflare Workers Development
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Configure `wrangler.toml` with your settings
+4. Build: `npm run build`
+5. Deploy: `npx wrangler deploy`
+6. Test with: `npx wrangler tail` for real-time logs
+
+### Testing Super Admin Features
+```bash
+# Test the super admin authentication tool
+node test-super-admin-tool.js
+
+# Run all diagnostic tools to verify setup
+# Use your MCP client to call:
+# - debug_pocketbase_auth
+# - check_pocketbase_write_permissions  
+# - analyze_pocketbase_capabilities
+# - pocketbase_super_admin_auth
+```
+
+### File Structure
+```
+src/
+├── smithery-entry.ts             # Smithery platform entry point
+├── worker.ts                     # Cloudflare Worker entry point
+├── durable-object.ts             # Durable Object implementation
+├── agent-worker-compatible.ts    # Worker-optimized MCP agent
+├── main.ts                       # Node.js server entry point
+├── index.ts                      # Legacy Node.js entry point
+└── services/                     # Email, Stripe services
+```
 
 ## Installing via Smithery
 
+### Option 1: Direct Installation (Recommended)
 To install PocketBase Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/pocketbase-server):
 
 ```bash
 npx -y @smithery/cli install pocketbase-server --client claude
+```
+
+### Option 2: Web Platform Deployment
+1. Visit [Smithery PocketBase Server](https://smithery.ai/server/pocketbase-server)
+2. Click the "Deploy" button
+3. Connect your GitHub account and configure settings
+4. Use the web playground to test your server
+
+### Option 3: Development with Smithery CLI
+For developers who want to modify the server:
+
+```bash
+# Install Smithery CLI
+npm install -g @smithery/cli
+
+# Clone and develop
+git clone https://github.com/your-username/advanced-pocketbase-mcp-server
+cd advanced-pocketbase-mcp-server
+npm install
+
+# Start development server with hot reload
+npm run smithery:dev
+
+# Build for production
+npm run smithery:build
 ```
 
 ## Contributing

@@ -2,6 +2,8 @@
   "name": "pocketbase-server",
   "version": "0.1.0",
   "type": "module",
+  "module": "./src/smithery-entry.ts",
+  "main": "./dist/main.js",
   "scripts": {
     "preinstall": "node -e \"console.log('package-lock.json exists:', require('fs').existsSync('package-lock.json'))\"",
     "install-deps": "sh install-deps.sh",
@@ -26,6 +28,9 @@
     "start:sse:prod": "node dist/index.js --transport=sse --port=80 --host=0.0.0.0",
     "start:http:prod": "node dist/index.js --transport=http --port=80 --host=0.0.0.0",
     "smithery": "node dist/main.js --transport=stdio",
+    "smithery:dev": "npx @smithery/cli dev",
+    "smithery:build": "npx @smithery/cli build",
+    "build:smithery": "tsc --project tsconfig.smithery.json",
     "deploy:smithery": "npm run build && npm run smithery",
     "deploy:docker": "docker build -t pocketbase-mcp-server . && docker run -p 3000:3000 -e PORT=3000 pocketbase-mcp-server",
     "dev": "tsc -w",

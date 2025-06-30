@@ -1,6 +1,10 @@
 # Smithery configuration file: https://smithery.ai/docs/build/project-config/smithery-yaml
+# This configuration supports both TypeScript runtime (preferred) and container runtime
 
-runtime: "container"
+# For TypeScript runtime (recommended - faster builds, better integration)
+runtime: "typescript"
+env:
+  NODE_ENV: production
 startCommand:
   type: "http"
   configSchema:

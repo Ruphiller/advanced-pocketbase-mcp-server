@@ -1,0 +1,32 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "./dist/smithery",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "src/smithery-entry.ts",
+    "src/agent-simple.ts",
+    "src/agent-worker-compatible.ts",
+    "src/services/*.ts",
+    "src/types/*.ts"
+  ],
+  "exclude": [
+    "src/worker.ts",
+    "src/durable-object.ts",
+    "src/index.ts",
+    "src/main.ts",
+    "node_modules",
+    "dist",
+    "build"
+  ]
+}
