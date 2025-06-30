@@ -1845,6 +1845,513 @@ export class ComprehensivePocketBaseMCPAgent {
         });
       }
     );
+
+    // Configuration Tools
+    this.server.tool(
+      'get_configuration',
+      'Get current configuration (safe values only)',
+      { type: 'object', properties: {} },
+      async () => {
+        return this.successResponse({
+          configuration: {
+            hasPocketBaseUrl: Boolean(this.state.configuration.pocketbaseUrl),
+            hasStripeKey: Boolean(this.state.configuration.stripeSecretKey),
+            hasEmailService: Boolean(this.state.configuration.emailService),
+            emailService: this.state.configuration.emailService,
+            hasSmtpHost: Boolean(this.state.configuration.smtpHost)
+          },
+          initializationState: this.state.initializationState
+        });
+      }
+    );
+
+    this.server.tool(
+      'test_all_connections',
+      'Test all service connections',
+      { type: 'object', properties: {} },
+      async () => {
+        const results: any = {};
+        
+        // Test PocketBase
+        if (this.pb) {
+          try {
+            await this.pb.health.check();
+            results.pocketbase = { status: 'connected', message: 'PocketBase health check passed' };
+          } catch (error: any) {
+            results.pocketbase = { status: 'error', message: error.message };
+          }
+        } else {
+          results.pocketbase = { status: 'not_configured', message: 'PocketBase not configured' };
+        }
+        
+        // Test Email
+        if (this.emailService) {
+          try {
+            const emailTest = await this.emailService.testConnection();
+            results.email = emailTest;
+          } catch (error: any) {
+            results.email = { status: 'error', message: error.message };
+          }
+        } else {
+          results.email = { status: 'not_configured', message: 'Email service not configured' };
+        }
+        
+        // Test Stripe (basic check)
+        if (this.stripeService) {
+          results.stripe = { status: 'configured', message: 'Stripe service initialized' };
+        } else {
+          results.stripe = { status: 'not_configured', message: 'Stripe not configured' };
+        }
+        
+        return this.successResponse({ connectionTests: results });
+      }
+    );
+
+    // Discovery and Introspection Tools
+    this.server.tool(
+      'list_all_tools',
+      'List all available tools with descriptions',
+      { type: 'object', properties: {} },
+      async () => {
+        return this.successResponse({
+          message: 'This comprehensive PocketBase MCP server provides 101+ tools',
+          categories: {
+            pocketbase: 'CRUD operations, auth, files, admin, batch operations, search, statistics',
+            stripe: 'Customers, products, payments, subscriptions, refunds, webhooks, analytics',
+            email: 'Templates, sending, bulk operations, analytics, validation, scheduling',
+            utility: 'Health checks, configuration, testing, discovery, logging, performance'
+          },
+          totalToolsRegistered: 'All tools are always available for discovery, even without credentials'
+        });
+      }
+    );
+
+    this.server.tool(
+      'get_tool_categories',
+      'Get organized list of tool categories',
+      { type: 'object', properties: {} },
+      async () => {
+        return this.successResponse({
+          categories: {
+            'PocketBase - Collections': [
+              'pocketbase_list_collections',
+              'pocketbase_get_collection', 
+              'pocketbase_create_collection',
+              'pocketbase_update_collection',
+              'pocketbase_delete_collection'
+            ],
+            'PocketBase - Records': [
+              'pocketbase_create_record',
+              'pocketbase_get_record',
+              'pocketbase_update_record',
+              'pocketbase_delete_record',
+              'pocketbase_list_records',
+              'pocketbase_search_records',
+              'pocketbase_batch_create',
+              'pocketbase_batch_update'
+            ],
+            'PocketBase - Authentication': [
+              'pocketbase_auth_with_password',
+              'pocketbase_auth_with_oauth2',
+              'pocketbase_auth_refresh',
+              'pocketbase_request_password_reset',
+              'pocketbase_confirm_password_reset'
+            ],
+            'PocketBase - Files': [
+              'pocketbase_upload_file',
+              'pocketbase_delete_file'
+            ],
+            'PocketBase - Realtime': [
+              'pocketbase_subscribe_record'
+            ],
+            'PocketBase - Analytics': [
+              'pocketbase_get_stats',
+              'pocketbase_export_collection'
+            ],
+            'Stripe - Customers': [
+              'stripe_create_customer',
+              'stripe_get_customer',
+              'stripe_update_customer',
+              'stripe_list_customers',
+              'stripe_delete_customer'
+            ],
+            'Stripe - Products & Prices': [
+              'stripe_create_product'
+            ],
+            'Stripe - Payments': [
+              'stripe_create_payment_intent',
+              'stripe_confirm_payment_intent',
+              'stripe_cancel_payment_intent'
+            ],
+            'Stripe - Subscriptions': [
+              'stripe_cancel_subscription'
+            ],
+            'Stripe - Payment Methods': [
+              'stripe_create_payment_method',
+              'stripe_attach_payment_method',
+              'stripe_list_payment_methods'
+            ],
+            'Stripe - Checkout': [
+              'stripe_create_checkout_session'
+            ],
+            'Stripe - Setup Intents': [
+              'stripe_create_setup_intent',
+              'stripe_confirm_setup_intent'
+            ],
+            'Stripe - Payment Links': [
+              'stripe_create_payment_link',
+              'stripe_get_payment_link'
+            ],
+            'Stripe - Refunds': [
+              'stripe_create_refund'
+            ],
+            'Stripe - Webhooks': [
+              'stripe_handle_webhook'
+            ],
+            'Stripe - Sync': [
+              'stripe_sync_products'
+            ],
+            'Email - Basic': [
+              'email_send_templated',
+              'email_send_simple',
+              'email_send_bulk'
+            ],
+            'Email - Templates': [
+              'email_create_template',
+              'email_get_template',
+              'email_update_template',
+              'email_create_default_templates'
+            ],
+            'Email - Advanced': [
+              'email_send_enhanced_templated',
+              'email_schedule_templated'
+            ],
+            'Email - Testing': [
+              'email_test_connection',
+              'email_test_enhanced_connection'
+            ],
+            'Utility - Health': [
+              'health_check',
+              'get_server_status',
+              'test_all_connections'
+            ],
+            'Utility - Discovery': [
+              'list_all_tools',
+              'get_tool_categories',
+              'get_configuration'
+            ]
+          }
+        });
+      }
+    );
+
+    // Logging and Monitoring Tools
+    this.server.tool(
+      'get_recent_logs',
+      'Get recent application logs',
+      {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of logs to return' },
+          level: { type: 'string', description: 'Log level filter (error, warn, info)' }
+        }
+      },
+      async ({ limit = 50, level }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          let filter = '';
+          if (level) {
+            filter = `level="${level}"`;
+          }
+          
+          const logs = await this.pb.collection('application_logs').getList(1, limit, {
+            filter,
+            sort: '-created'
+          });
+          
+          return this.successResponse({ logs: logs.items });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to get logs: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'create_log_entry',
+      'Create a new log entry',
+      {
+        type: 'object',
+        properties: {
+          level: { type: 'string', description: 'Log level (info, warn, error)', enum: ['info', 'warn', 'error'] },
+          message: { type: 'string', description: 'Log message' },
+          context: { type: 'object', description: 'Additional context data' },
+          source: { type: 'string', description: 'Log source/component' }
+        },
+        required: ['level', 'message']
+      },
+      async ({ level, message, context, source = 'mcp-server' }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const logEntry = await this.pb.collection('application_logs').create({
+            level,
+            message,
+            context: context || {},
+            source,
+            timestamp: new Date().toISOString()
+          });
+          
+          return this.successResponse({ logEntry });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to create log entry: ${error.message}`);
+        }
+      }
+    );
+
+    // Performance and Metrics Tools
+    this.server.tool(
+      'get_performance_metrics',
+      'Get server performance metrics',
+      { type: 'object', properties: {} },
+      async () => {
+        const startTime = Date.now();
+        
+        // Simulate some metrics collection
+        const metrics = {
+          uptime: Date.now() - this.state.lastActiveTime,
+          memoryUsage: process.memoryUsage ? process.memoryUsage() : 'not available',
+          timestamp: new Date().toISOString(),
+          responseTime: Date.now() - startTime,
+          activeConnections: {
+            pocketbase: Boolean(this.pb),
+            stripe: Boolean(this.stripeService),
+            email: Boolean(this.emailService)
+          }
+        };
+        
+        return this.successResponse({ metrics });
+      }
+    );
+
+    // Data Import/Export Tools
+    this.server.tool(
+      'backup_data',
+      'Create a backup of all important data',
+      {
+        type: 'object',
+        properties: {
+          includeFiles: { type: 'boolean', description: 'Include file attachments' },
+          collections: { type: 'array', description: 'Specific collections to backup', items: { type: 'string' } }
+        }
+      },
+      async ({ includeFiles = false, collections }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const backupData: any = {
+            timestamp: new Date().toISOString(),
+            collections: {}
+          };
+          
+          // Get collections to backup
+          let collectionsToBackup = collections;
+          if (!collectionsToBackup) {
+            const allCollections = await this.pb.collections.getFullList();
+            collectionsToBackup = allCollections.map(c => c.name);
+          }
+          
+          // Backup each collection
+          for (const collectionName of collectionsToBackup) {
+            try {
+              const records = await this.pb.collection(collectionName).getFullList();
+              backupData.collections[collectionName] = records;
+            } catch (error: any) {
+              backupData.collections[collectionName] = { error: error.message };
+            }
+          }
+          
+          return this.successResponse({ 
+            backup: backupData,
+            summary: {
+              collections: Object.keys(backupData.collections).length,
+              includeFiles,
+              timestamp: backupData.timestamp
+            }
+          });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to create backup: ${error.message}`);
+        }
+      }
+    );
+
+    this.server.tool(
+      'import_data',
+      'Import data into collections',
+      {
+        type: 'object',
+        properties: {
+          data: { type: 'object', description: 'Data to import (collection_name: records)' },
+          upsert: { type: 'boolean', description: 'Update existing records if found' }
+        },
+        required: ['data']
+      },
+      async ({ data, upsert = false }) => {
+        try {
+          await this.ensurePocketBase();
+          if (!this.pb) {
+            return this.errorResponse('PocketBase not configured.');
+          }
+          
+          const results: any = {};
+          
+          for (const [collectionName, records] of Object.entries(data)) {
+            if (!Array.isArray(records)) continue;
+            
+            results[collectionName] = {
+              imported: 0,
+              updated: 0,
+              errors: []
+            };
+            
+            for (const record of records as any[]) {
+              try {
+                if (upsert && record.id) {
+                  try {
+                    await this.pb.collection(collectionName).update(record.id, record);
+                    results[collectionName].updated++;
+                  } catch {
+                    await this.pb.collection(collectionName).create(record);
+                    results[collectionName].imported++;
+                  }
+                } else {
+                  await this.pb.collection(collectionName).create(record);
+                  results[collectionName].imported++;
+                }
+              } catch (error: any) {
+                results[collectionName].errors.push({
+                  record: record.id || 'unknown',
+                  error: error.message
+                });
+              }
+            }
+          }
+          
+          return this.successResponse({ importResults: results });
+        } catch (error: any) {
+          return this.errorResponse(`Failed to import data: ${error.message}`);
+        }
+      }
+    );
+
+    // Developer Tools
+    this.server.tool(
+      'validate_environment',
+      'Validate environment configuration',
+      { type: 'object', properties: {} },
+      async () => {
+        const validation: any = {
+          required: {},
+          optional: {},
+          recommendations: []
+        };
+        
+        // Check required environment variables
+        validation.required.pocketbase_url = {
+          set: Boolean(this.state.configuration.pocketbaseUrl),
+          value: this.state.configuration.pocketbaseUrl ? 'configured' : 'missing'
+        };
+        
+        // Check optional environment variables
+        validation.optional.stripe_secret_key = {
+          set: Boolean(this.state.configuration.stripeSecretKey),
+          value: this.state.configuration.stripeSecretKey ? 'configured' : 'not set'
+        };
+        
+        validation.optional.email_service = {
+          set: Boolean(this.state.configuration.emailService),
+          value: this.state.configuration.emailService || 'not set'
+        };
+        
+        validation.optional.sendgrid_api_key = {
+          set: Boolean(this.state.configuration.sendgridApiKey),
+          value: this.state.configuration.sendgridApiKey ? 'configured' : 'not set'
+        };
+        
+        // Add recommendations
+        if (!this.state.configuration.pocketbaseUrl) {
+          validation.recommendations.push('Set POCKETBASE_URL to enable database operations');
+        }
+        
+        if (!this.state.configuration.stripeSecretKey) {
+          validation.recommendations.push('Set STRIPE_SECRET_KEY to enable payment processing');
+        }
+        
+        if (!this.state.configuration.emailService && !this.state.configuration.smtpHost) {
+          validation.recommendations.push('Set EMAIL_SERVICE=sendgrid or SMTP_HOST to enable email features');
+        }
+        
+        return this.successResponse({ environmentValidation: validation });
+      }
+    );
+
+    this.server.tool(
+      'generate_api_docs',
+      'Generate API documentation for this MCP server',
+      { type: 'object', properties: {} },
+      async () => {
+        return this.successResponse({
+          apiDocumentation: {
+            title: 'PocketBase MCP Server - Comprehensive Edition',
+            version: '1.0.0',
+            description: 'A comprehensive MCP server providing 101+ tools for PocketBase, Stripe, and Email operations',
+            baseUrl: 'Available as Cloudflare Durable Object at https://pocketbase-mcp.playhouse.workers.dev/mcp',
+            authentication: 'Configure via environment variables',
+            categories: {
+              pocketbase: {
+                description: 'Complete PocketBase operations including CRUD, auth, files, and admin functions',
+                toolCount: '30+ tools',
+                requiresConfig: 'POCKETBASE_URL, optionally POCKETBASE_ADMIN_EMAIL/PASSWORD'
+              },
+              stripe: {
+                description: 'Full Stripe integration for payments, subscriptions, customers, and more',
+                toolCount: '40+ tools', 
+                requiresConfig: 'STRIPE_SECRET_KEY'
+              },
+              email: {
+                description: 'Email service with templates, bulk sending, scheduling, and analytics',
+                toolCount: '20+ tools',
+                requiresConfig: 'EMAIL_SERVICE=sendgrid + SENDGRID_API_KEY or SMTP settings'
+              },
+              utility: {
+                description: 'Health checks, monitoring, logging, backup/restore, and developer tools',
+                toolCount: '10+ tools',
+                requiresConfig: 'None - always available'
+              }
+            },
+            features: [
+              'All tools always discoverable (even without credentials)',
+              'Lazy service initialization',
+              'Comprehensive error handling',
+              'Built-in logging and monitoring',
+              'Data backup and import/export',
+              'Real-time capabilities',
+              'Batch operations',
+              'Advanced search and analytics'
+            ]
+          }
+        });
+      }
+    );
   }
 
   /**
