@@ -5,7 +5,7 @@
  * MCP servers on Cloudflare Workers with Durable Objects.
  */
 import { routeAgentRequest } from "agents";
-import PocketBaseMCPAgent from './agent-cloudflare.js';
+import PocketBaseMCPAgentBestPractices from './agent-best-practices.js';
 /**
  * Best Practices Durable Object using Cloudflare Agents SDK
  *
@@ -15,7 +15,7 @@ import PocketBaseMCPAgent from './agent-cloudflare.js';
  * - Proper SSE endpoint handling
  * - OAuth integration capabilities
  */
-export class PocketBaseMCPBestPractices extends PocketBaseMCPAgent {
+export class PocketBaseMCPBestPractices extends PocketBaseMCPAgentBestPractices {
 }
 /**
  * Worker fetch handler using Agent.serveSSE

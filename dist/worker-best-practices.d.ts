@@ -4,7 +4,7 @@
  * This worker demonstrates the recommended patterns for deploying
  * MCP servers on Cloudflare Workers with Durable Objects.
  */
-import PocketBaseMCPAgent from './agent-cloudflare.js';
+import PocketBaseMCPAgentBestPractices from './agent-best-practices.js';
 interface Env {
     POCKETBASE_MCP_DO: DurableObjectNamespace;
     POCKETBASE_URL?: string;
@@ -24,7 +24,7 @@ interface Env {
  * - Proper SSE endpoint handling
  * - OAuth integration capabilities
  */
-export declare class PocketBaseMCPBestPractices extends PocketBaseMCPAgent {
+export declare class PocketBaseMCPBestPractices extends PocketBaseMCPAgentBestPractices {
 }
 /**
  * Worker fetch handler using Agent.serveSSE

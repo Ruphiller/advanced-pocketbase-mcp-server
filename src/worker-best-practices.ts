@@ -6,7 +6,7 @@
  */
 
 import { routeAgentRequest } from "agents";
-import PocketBaseMCPAgent from './agent-cloudflare.js';
+import PocketBaseMCPAgentBestPractices from './agent-best-practices.js';
 
 // Environment interface
 interface Env {
@@ -29,7 +29,7 @@ interface Env {
  * - Proper SSE endpoint handling
  * - OAuth integration capabilities
  */
-export class PocketBaseMCPBestPractices extends PocketBaseMCPAgent {
+export class PocketBaseMCPBestPractices extends PocketBaseMCPAgentBestPractices {
   // The Agent class handles all the Durable Object lifecycle automatically
 }
 
