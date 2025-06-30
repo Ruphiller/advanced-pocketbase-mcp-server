@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Comprehensive Multi-Platform Deployment Test
- * 
+ * Comprehensive Multi-Platform Deployment   // Check smithery has module field in package.json
+  const hasModuleField = packageJson.module === './src/smithery-entry.ts';
+  tests.smithery.checks.push({
+    name: 'Package.json module field',
+    status: hasModuleField ? 'PASS' : 'FAIL',
+    details: hasModuleField ? 'Module field points to smithery-entry.ts' : 'Module field missing or incorrect'
+  });* 
  * This script verifies that all deployment targets work correctly:
  * - Smithery Platform (TypeScript runtime)
  * - Cloudflare Workers (with Durable Objects)

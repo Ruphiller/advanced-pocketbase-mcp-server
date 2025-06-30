@@ -30,7 +30,6 @@
     "smithery": "node dist/main.js --transport=stdio",
     "smithery:dev": "npx @smithery/cli dev",
     "smithery:build": "npx @smithery/cli build",
-    "build:smithery": "tsc --project tsconfig.smithery.json",
     "deploy:smithery": "npm run build && npm run smithery",
     "deploy:docker": "docker build -t pocketbase-mcp-server . && docker run -p 3000:3000 -e PORT=3000 pocketbase-mcp-server",
     "dev": "tsc -w",
