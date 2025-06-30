@@ -62,7 +62,36 @@ Run these tools through your MCP client to get detailed analysis:
 1. **`analyze_pocketbase_capabilities`** - Complete capabilities analysis
 2. **`debug_pocketbase_auth`** - Authentication and connection debugging
 3. **`check_pocketbase_write_permissions`** - Write operations testing
-4. **`get_server_status`** - Overall server status and configuration
+4. **`pocketbase_super_admin_auth`** - Runtime super admin authentication (enables admin operations)
+5. **`get_server_status`** - Overall server status and configuration
+
+## 🔐 Runtime Admin Authentication
+
+If you need to perform admin-level operations programmatically, use the **`pocketbase_super_admin_auth`** tool:
+
+```javascript
+// Authenticate with provided credentials
+{
+  "tool": "pocketbase_super_admin_auth",
+  "arguments": {
+    "email": "admin@example.com",
+    "password": "your-admin-password"
+  }
+}
+
+// Or use environment credentials
+{
+  "tool": "pocketbase_super_admin_auth",
+  "arguments": {}
+}
+```
+
+**After successful authentication**, admin operations become available in the same session:
+- Collection creation and schema modifications
+- User management and authentication settings
+- System configuration changes
+
+⚠️ **Note**: Some production environments may restrict admin API access for security. See `SUPER_ADMIN_AUTH.md` for detailed usage instructions.
 
 ## 💡 Best Practices
 
