@@ -727,13 +727,14 @@ class PocketBaseMCPAgent {
     async ensureStripeService() {
         if (this.stripeService)
             return;
-        if (this.state.configuration?.stripeSecretKey && this.pb) {
-            try {
-                this.stripeService = new StripeService(this.pb);
-            }
-            catch (error) {
-                console.warn('Failed to initialize Stripe service:', error);
-            }
+        if (!this.pb) {
+            throw new Error('PocketBase not initialized. Please configure POCKETBASE_URL environment variable.');
+        }
+        try {
+            this.stripeService = new StripeService(this.pb);
+        }
+        catch (error) {
+            throw new Error('Stripe service not available. Please configure STRIPE_SECRET_KEY environment variable.');
         }
     }
     /**
@@ -742,13 +743,14 @@ class PocketBaseMCPAgent {
     async ensureEmailService() {
         if (this.emailService)
             return;
-        if ((this.state.configuration?.emailService || this.state.configuration?.smtpHost) && this.pb) {
-            try {
-                this.emailService = new EmailService(this.pb);
-            }
-            catch (error) {
-                console.warn('Failed to initialize Email service:', error);
-            }
+        if (!this.pb) {
+            throw new Error('PocketBase not initialized. Please configure POCKETBASE_URL environment variable.');
+        }
+        try {
+            this.emailService = new EmailService(this.pb);
+        }
+        catch (error) {
+            throw new Error('Email service not available. Please configure EMAIL_SERVICE or SMTP_HOST environment variables.');
         }
     }
 }
