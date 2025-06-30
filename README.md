@@ -650,12 +650,25 @@ src/
 
 ## Installing via Smithery
 
+### Complete Advanced PocketBase Server with 100+ Tools
+
+The Smithery deployment now includes the **complete comprehensive agent** with all advanced features:
+
 ### Option 1: Direct Installation (Recommended)
-To install PocketBase Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/pocketbase-server):
+To install the **complete Advanced PocketBase Server** with **100+ tools** for Claude Desktop automatically via [Smithery](https://smithery.ai/server/pocketbase-server):
 
 ```bash
 npx -y @smithery/cli install pocketbase-server --client claude
 ```
+
+### What You Get with Smithery Deployment
+- 🗄️ **PocketBase CRUD Operations** (30+ tools) - Complete database management
+- 🔐 **Admin & Authentication Tools** (20+ tools) - User management and security  
+- ⚡ **Real-time & WebSocket Tools** (10+ tools) - Live data streaming
+- 💳 **Stripe Payment Processing** (25+ tools) - Complete payment workflows
+- 📧 **Email & Communication Tools** (15+ tools) - Email templates and notifications
+- 🛠️ **Utility & Diagnostic Tools** (10+ tools) - System monitoring and debugging
+- 📚 **Resources & Prompts** - Enhanced AI interactions with examples
 
 ### Option 2: Web Platform Deployment
 1. Visit [Smithery PocketBase Server](https://smithery.ai/server/pocketbase-server)
