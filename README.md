@@ -1,9 +1,65 @@
 # Advanced PocketBase MCP Server
 
 [![smithery badge](https://smithery.ai/badge/pocketbase-server)](https://smithery.ai/server/pocketbase-server)
-A comprehensive MCP server that provides sophisticated tools for interacting with PocketBase databases. This server enables advanced database operations, schema management, and data manipulation through the Model Context Protocol (MCP).
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourusername/advanced-pocketbase-mcp-server)
+
+A comprehensive MCP server that provides sophisticated tools for interacting with PocketBase databases. This server enables advanced database operations, schema management, and data manipulation through the Model Context Protocol (MCP). **Now with full Cloudflare Workers support and Durable Objects for serverless deployment!**
 
 <a href="https://glama.ai/mcp/servers/z2xjuegxxh"><img width="380" height="200" src="https://glama.ai/mcp/servers/z2xjuegxxh/badge" alt="pocketbase-mcp-server MCP server" /></a>
+
+## Changelog
+
+### v4.0.0 (June 30, 2025) - Cloudflare Workers & Durable Objects Support
+
+#### Added - Serverless Deployment & Production Readiness
+- **🚀 Cloudflare Workers Support**: Complete serverless deployment capability
+  - `worker.ts`: Main Cloudflare Worker entry point with routing and request handling
+  - `durable-object.ts`: Advanced Durable Object implementation for stateful MCP sessions
+  - `agent-worker-compatible.ts`: Worker-optimized PocketBase MCP agent
+  - Full WebSocket support for real-time MCP connections over Durable Objects
+- **🔧 Production Deployment Tools**: Ready-to-deploy configuration
+  - `wrangler.toml`: Complete Cloudflare Workers configuration
+  - `Dockerfile` and `Dockerfile.test`: Docker support for development and testing
+  - `tsconfig.worker.json`: Worker-specific TypeScript configuration
+- **🛡️ Super Admin Authentication**: Runtime admin privilege escalation
+  - `pocketbase_super_admin_auth` tool: Authenticate as super admin during runtime
+  - Enables admin operations (collection creation, schema changes) programmatically
+  - Comprehensive security analysis and capability testing
+- **📊 Advanced Diagnostics**: Production monitoring and debugging tools
+  - `debug_pocketbase_auth`: Authentication and connection testing
+  - `check_pocketbase_write_permissions`: Write operation capability analysis
+  - `analyze_pocketbase_capabilities`: Complete security model documentation
+  - Production vs development environment detection and guidance
+
+#### Enhanced - Serverless Architecture
+- **🌐 Multiple Deployment Options**: 
+  - Traditional Node.js server (existing)
+  - Cloudflare Workers with Durable Objects (new)
+  - Docker containerization support (new)
+- **⚡ Performance Optimizations**: 
+  - Durable Object hibernation for cost efficiency
+  - Connection pooling and session management
+  - Automatic retry logic with exponential backoff
+- **🔐 Enterprise Security**: 
+  - Production security mode detection
+  - Admin operation restrictions with bypass capability
+  - Comprehensive audit logging and session tracking
+
+#### Documentation
+- **📖 Complete Deployment Guides**: 
+  - `CLOUDFLARE_DEPLOYMENT.md`: Step-by-step Cloudflare deployment
+  - `SUPER_ADMIN_AUTH.md`: Super admin authentication usage guide
+  - `OPERATION_CAPABILITIES.md`: Production security model explanation
+- **🔄 Migration Support**: `CLOUDFLARE_AGENT.md` for transitioning to serverless
+
+#### Technical Improvements
+- Full TypeScript compatibility across Node.js and Cloudflare Workers
+- Environment variable management for multiple deployment targets
+- Comprehensive error handling for network and authentication failures
+- Resource cleanup and memory management for long-running sessions
+
+This major release transforms the Advanced PocketBase MCP Server into a production-ready, serverless-capable solution that can be deployed on Cloudflare's global edge network while maintaining full compatibility with traditional deployments.
 
 ## Changelog
 
@@ -146,6 +202,49 @@ This release ensures the Advanced PocketBase MCP Server is fully compatible with
 - Improved documentation with more detailed examples
 - Enhanced environment variable configuration options
 
+## 🚀 Deployment Options
+
+### Cloudflare Workers (Recommended for Production)
+
+Deploy to Cloudflare's global edge network with Durable Objects for stateful MCP sessions:
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourusername/advanced-pocketbase-mcp-server)
+
+**Quick Deploy:**
+```bash
+# Clone and deploy
+git clone https://github.com/yourusername/advanced-pocketbase-mcp-server
+cd advanced-pocketbase-mcp-server
+npm install
+npm run build
+npx wrangler deploy
+```
+
+**Benefits:**
+- ⚡ Global edge deployment with sub-100ms latency
+- 💰 Pay-per-use pricing (free tier available)
+- 🔄 Automatic scaling and load balancing
+- 🛡️ Built-in security and DDoS protection
+- 📊 Advanced diagnostics and monitoring tools
+
+### Traditional Node.js Server
+
+Standard deployment for development and traditional hosting:
+
+```bash
+npm install
+npm run build
+npm start
+```
+
+### Docker Deployment
+
+Containerized deployment for any platform:
+
+```bash
+docker build -t pocketbase-mcp-server .
+docker run -p 3000:3000 -e POCKETBASE_URL=your_url pocketbase-mcp-server
+```
 
 ## Features
 
@@ -214,6 +313,23 @@ This release ensures the Advanced PocketBase MCP Server is fully compatible with
 ### Database Operations
 - `backup_database`: Create a backup of the PocketBase database with format options
 - `import_data`: Import data with various modes (create/update/upsert)
+
+### 🔧 Production Diagnostics & Admin Tools
+- `debug_pocketbase_auth`: Test authentication and connection status
+- `check_pocketbase_write_permissions`: Analyze write operation capabilities
+- `analyze_pocketbase_capabilities`: Document available vs restricted operations
+- `pocketbase_super_admin_auth`: **Authenticate as super admin at runtime**
+- `get_server_status`: Comprehensive server status and configuration
+- `health_check`: Simple health check endpoint
+
+### 🛡️ Super Admin Operations
+After using `pocketbase_super_admin_auth`, these admin-level operations become available:
+- Collection creation and schema modifications
+- User management and authentication settings  
+- System configuration changes
+- Database administration tasks
+
+> **Note**: Admin operations may be restricted in production environments for security. Use the diagnostic tools to understand your deployment's security model.
 
 ## Configuration
 
