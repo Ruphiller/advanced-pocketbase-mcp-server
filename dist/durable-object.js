@@ -505,7 +505,7 @@ export class PocketBaseMCPDurableObject {
                 id: this.state.id.toString(),
                 lastActivity: new Date(this.lastActivity).toISOString(),
                 activeSessions: this.sessions.size,
-                shouldHibernate: agent.shouldHibernate()
+                shouldHibernate: false // Comprehensive agent handles its own state
             },
             agent: agent.getState()
         };
