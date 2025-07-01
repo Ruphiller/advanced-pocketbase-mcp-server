@@ -2,7 +2,7 @@
   "name": "pocketbase-server",
   "version": "0.1.0",
   "type": "module",
-  "module": "./src/smithery-entry.ts",
+  "module": "./src/smithery-entry-fixed.ts",
   "main": "./dist/main.js",
   "scripts": {
     "preinstall": "node -e \"console.log('package-lock.json exists:', require('fs').existsSync('package-lock.json'))\"",
