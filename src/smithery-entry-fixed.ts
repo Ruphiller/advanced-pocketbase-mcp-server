@@ -30,7 +30,7 @@ class SimplePocketBaseMCPServer {
   private config?: z.infer<typeof configSchema>;
 
   constructor() {
-    this.setupBasicTools();
+    // Tool registration moved to async setup()
   }
 
   /**
@@ -73,7 +73,7 @@ class SimplePocketBaseMCPServer {
   /**
    * Setup essential PocketBase tools with lazy loading
    */
-  private async setupBasicTools(): Promise<void> {
+  async setupBasicTools(): Promise<void> {
     // Health Check Tool
     this.server.tool(
       'health_check',
@@ -98,9 +98,13 @@ class SimplePocketBaseMCPServer {
 
     for (const modulePath of toolModules) {
       try {
+        console.log(`Attempting to load tools from: ${modulePath}`);
         const module = await import(modulePath);
         if (module && module.registerTools) {
+          console.log(`Registering tools from: ${modulePath}`);
           module.registerTools(this.server, this.pb);
+        } else {
+          console.warn(`No registerTools function found in: ${modulePath}`);
         }
       } catch (error) {
         console.error(`Failed to load tools from ${modulePath}:`, error);
@@ -137,27 +141,15 @@ class SimplePocketBaseMCPServer {
   }
 }
 
-export default function ({ config }: { config: z.infer<typeof configSchema> }) {
-  // Use safeParse to avoid throwing errors during tool scanning
+export default async function ({ config }: { config: z.infer<typeof configSchema> }) {
   const parseResult = configSchema.safeParse(config);
-  
-  // Create the simple server
   const serverInstance = new SimplePocketBaseMCPServer();
-  
-  // Only initialize with config if it's valid
+
   if (parseResult.success) {
     const validatedConfig = parseResult.data;
-    
-    // Initialize asynchronously but don't await to avoid blocking tool discovery
-    serverInstance.init(validatedConfig).catch(error => {
-      console.error('Server initialization error:', error);
-    });
-  } else {
-    // During tool scanning, config might be invalid/empty - this is expected
-    console.log('🔍 Tool scanning mode - no valid config provided (this is normal for discovery)');
-    console.log('📋 Essential PocketBase tools are available for discovery');
+    await serverInstance.init(validatedConfig);
   }
+  await serverInstance.setupBasicTools();
 
-  // Return the server immediately for tool discovery
   return serverInstance.server;
 }
