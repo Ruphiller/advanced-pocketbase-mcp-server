@@ -30,7 +30,7 @@ class SimplePocketBaseMCPServer {
   private config?: z.infer<typeof configSchema>;
 
   constructor() {
-    // Tool registration moved to async setup()
+    this.setupBasicTools();
   }
 
   /**
@@ -73,7 +73,7 @@ class SimplePocketBaseMCPServer {
   /**
    * Setup essential PocketBase tools with lazy loading
    */
-  async setupBasicTools(): Promise<void> {
+  setupBasicTools(): void {
     // Health Check Tool
     this.server.tool(
       'health_check',
@@ -89,27 +89,19 @@ class SimplePocketBaseMCPServer {
       }
     );
 
-    // Dynamically import and register tools
-    const toolModules = [
-      './services/email',
-      './services/sendgrid',
-      './services/stripe'
-    ];
-
-    for (const modulePath of toolModules) {
-      try {
-        console.log(`Attempting to load tools from: ${modulePath}`);
-        const module = await import(modulePath);
-        if (module && module.registerTools) {
-          console.log(`Registering tools from: ${modulePath}`);
-          module.registerTools(this.server, this.pb);
-        } else {
-          console.warn(`No registerTools function found in: ${modulePath}`);
-        }
-      } catch (error) {
-        console.error(`Failed to load tools from ${modulePath}:`, error);
-      }
-    }
+    // Synchronously require and register tools
+    try {
+      const email = require('./services/email');
+      if (email && email.registerTools) email.registerTools(this.server, this.pb);
+    } catch (e) { /* ignore */ }
+    try {
+      const sendgrid = require('./services/sendgrid');
+      if (sendgrid && sendgrid.registerTools) sendgrid.registerTools(this.server, this.pb);
+    } catch (e) { /* ignore */ }
+    try {
+      const stripe = require('./services/stripe');
+      if (stripe && stripe.registerTools) stripe.registerTools(this.server, this.pb);
+    } catch (e) { /* ignore */ }
   }
 
   /**
@@ -141,15 +133,15 @@ class SimplePocketBaseMCPServer {
   }
 }
 
-export default async function ({ config }: { config: z.infer<typeof configSchema> }) {
+export default function ({ config }: { config: z.infer<typeof configSchema> }) {
   const parseResult = configSchema.safeParse(config);
   const serverInstance = new SimplePocketBaseMCPServer();
 
   if (parseResult.success) {
     const validatedConfig = parseResult.data;
-    await serverInstance.init(validatedConfig);
+    serverInstance.init(validatedConfig).catch(error => {
+      console.error('Server initialization error:', error);
+    });
   }
-  await serverInstance.setupBasicTools();
-
   return serverInstance.server;
 }
