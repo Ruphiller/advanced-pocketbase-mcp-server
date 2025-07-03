@@ -679,4 +679,26 @@ export class SendGridService {
       };
     }
   }
+
+  // Register SendGrid-related tools dynamically
+  static registerTools(server: any, pb: any): void {
+    server.tool('sendgrid_email', 'Send an email via SendGrid', { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } } }, async (args: any) => {
+      const sendGridService = new SendGridService(pb);
+      await sendGridService.sendEmail(args.to, args.subject, args.body);
+      return { success: true };
+    });
+  }
+
+  async sendEmail(to: string, subject: string, body: string): Promise<void> {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
+
+    const msg = {
+      to,
+      from: process.env.EMAIL_FROM || '',
+      subject,
+      text: body,
+    };
+
+    await sgMail.send(msg);
+  }
 }

@@ -71,9 +71,9 @@ class SimplePocketBaseMCPServer {
   }
 
   /**
-   * Setup essential PocketBase tools
+   * Setup essential PocketBase tools with lazy loading
    */
-  private setupBasicTools(): void {
+  private async setupBasicTools(): Promise<void> {
     // Health Check Tool
     this.server.tool(
       'health_check',
@@ -89,248 +89,23 @@ class SimplePocketBaseMCPServer {
       }
     );
 
-    // List Collections
-    this.server.tool(
-      'pocketbase_list_collections',
-      'List all available PocketBase collections',
-      { type: 'object', properties: {} },
-      async () => {
-        try {
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured. Set pocketbaseUrl in config.');
-          }
-          
-          const collections = await this.pb.collections.getFullList(200);
-          return this.successResponse({ 
-            collections: collections.map(c => ({
-              id: c.id,
-              name: c.name,
-              type: c.type,
-              created: c.created
-            }))
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to list collections: ${error.message}`);
-        }
-      }
-    );
+    // Dynamically import and register tools
+    const toolModules = [
+      './services/email',
+      './services/sendgrid',
+      './services/stripe'
+    ];
 
-    // Get Collection
-    this.server.tool(
-      'pocketbase_get_collection',
-      'Get detailed information about a specific collection',
-      {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: 'Collection name' }
-        },
-        required: ['name']
-      },
-      async ({ name }) => {
-        try {
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const collection = await this.pb.collections.getOne(name);
-          return this.successResponse({ collection });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to get collection: ${error.message}`);
+    for (const modulePath of toolModules) {
+      try {
+        const module = await import(modulePath);
+        if (module && module.registerTools) {
+          module.registerTools(this.server, this.pb);
         }
+      } catch (error) {
+        console.error(`Failed to load tools from ${modulePath}:`, error);
       }
-    );
-
-    // Create Record
-    this.server.tool(
-      'pocketbase_create_record',
-      'Create a new record in a collection',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Collection name' },
-          data: { type: 'object', description: 'Record data' }
-        },
-        required: ['collection', 'data']
-      },
-      async ({ collection, data }) => {
-        try {
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const record = await this.pb.collection(collection).create(data);
-          return this.successResponse({ record });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to create record: ${error.message}`);
-        }
-      }
-    );
-
-    // Get Record
-    this.server.tool(
-      'pocketbase_get_record',
-      'Get a specific record by ID',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Collection name' },
-          id: { type: 'string', description: 'Record ID' }
-        },
-        required: ['collection', 'id']
-      },
-      async ({ collection, id }) => {
-        try {
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const record = await this.pb.collection(collection).getOne(id);
-          return this.successResponse({ record });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to get record: ${error.message}`);
-        }
-      }
-    );
-
-    // Update Record
-    this.server.tool(
-      'pocketbase_update_record',
-      'Update an existing record',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Collection name' },
-          id: { type: 'string', description: 'Record ID' },
-          data: { type: 'object', description: 'Updated data' }
-        },
-        required: ['collection', 'id', 'data']
-      },
-      async ({ collection, id, data }) => {
-        try {
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const record = await this.pb.collection(collection).update(id, data);
-          return this.successResponse({ record });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to update record: ${error.message}`);
-        }
-      }
-    );
-
-    // Delete Record
-    this.server.tool(
-      'pocketbase_delete_record',
-      'Delete a record by ID',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Collection name' },
-          id: { type: 'string', description: 'Record ID' }
-        },
-        required: ['collection', 'id']
-      },
-      async ({ collection, id }) => {
-        try {
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          await this.pb.collection(collection).delete(id);
-          return this.successResponse({ message: `Record ${id} deleted successfully` });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to delete record: ${error.message}`);
-        }
-      }
-    );
-
-    // List Records
-    this.server.tool(
-      'pocketbase_list_records',
-      'List records with filtering and pagination',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'Collection name' },
-          page: { type: 'number', description: 'Page number (default: 1)' },
-          perPage: { type: 'number', description: 'Records per page (default: 30)' },
-          filter: { type: 'string', description: 'Filter query' },
-          sort: { type: 'string', description: 'Sort criteria' }
-        },
-        required: ['collection']
-      },
-      async ({ collection, page = 1, perPage = 30, filter, sort }) => {
-        try {
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const options: any = {};
-          if (filter) options.filter = filter;
-          if (sort) options.sort = sort;
-          
-          const records = await this.pb.collection(collection).getList(page, perPage, options);
-          return this.successResponse({ records });
-        } catch (error: any) {
-          return this.errorResponse(`Failed to list records: ${error.message}`);
-        }
-      }
-    );
-
-    // Authentication
-    this.server.tool(
-      'pocketbase_auth_with_password',
-      'Authenticate with email and password',
-      {
-        type: 'object',
-        properties: {
-          collection: { type: 'string', description: 'User collection (e.g., "users")' },
-          email: { type: 'string', description: 'User email' },
-          password: { type: 'string', description: 'User password' }
-        },
-        required: ['collection', 'email', 'password']
-      },
-      async ({ collection, email, password }) => {
-        try {
-          if (!this.pb) {
-            return this.errorResponse('PocketBase not configured.');
-          }
-          
-          const authData = await this.pb.collection(collection).authWithPassword(email, password);
-          return this.successResponse({ 
-            user: authData.record,
-            token: authData.token 
-          });
-        } catch (error: any) {
-          return this.errorResponse(`Authentication failed: ${error.message}`);
-        }
-      }
-    );
-
-    // Server Status
-    this.server.tool(
-      'get_server_status',
-      'Get comprehensive server status and configuration',
-      { type: 'object', properties: {} },
-      async () => {
-        return this.successResponse({
-          status: 'healthy',
-          timestamp: new Date().toISOString(),
-          server: 'PocketBase MCP Server (Smithery Edition)',
-          configuration: {
-            hasPocketBaseUrl: Boolean(this.config?.pocketbaseUrl),
-            hasAdminCredentials: Boolean(this.config?.adminEmail && this.config?.adminPassword),
-            debugMode: this.config?.debug || false
-          },
-          services: {
-            pocketbase: Boolean(this.pb)
-          },
-          toolsAvailable: 9,
-          platform: 'Smithery'
-        });
-      }
-    );
+    }
   }
 
   /**

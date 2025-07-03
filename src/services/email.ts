@@ -211,6 +211,22 @@ export class EmailService {
     }
   }
 
+  // Send email
+  async sendEmail(to: string, subject: string, body: string): Promise<void> {
+    if (!this.transporter) {
+      throw new Error('Email transporter is not configured');
+    }
+
+    const mailOptions = {
+      from: process.env.EMAIL_FROM,
+      to,
+      subject,
+      text: body,
+    };
+
+    await this.transporter.sendMail(mailOptions);
+  }
+
   // Test email connection
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
@@ -499,4 +515,13 @@ The {{appName}} Team
 
     return results;
   }
+}
+
+// Register email-related tools
+export function registerTools(server: any, pb: any): void {
+  server.tool('send_email', 'Send an email', { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } } }, async (args: any) => {
+    const emailService = new EmailService(pb);
+    await emailService.sendEmail(args.to, args.subject, args.body);
+    return { success: true };
+  });
 }
