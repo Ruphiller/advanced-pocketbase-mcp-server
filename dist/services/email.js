@@ -171,6 +171,19 @@ export class EmailService {
             throw new Error(`Failed to send custom email: ${error.message}`);
         }
     }
+    // Send email
+    async sendEmail(to, subject, body) {
+        if (!this.transporter) {
+            throw new Error('Email transporter is not configured');
+        }
+        const mailOptions = {
+            from: process.env.EMAIL_FROM,
+            to,
+            subject,
+            text: body,
+        };
+        await this.transporter.sendMail(mailOptions);
+    }
     // Test email connection
     async testConnection() {
         try {
@@ -434,4 +447,12 @@ The {{appName}} Team
         }
         return results;
     }
+}
+// Register email-related tools
+export function registerTools(server, pb) {
+    server.tool('send_email', 'Send an email', { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } } }, async (args) => {
+        const emailService = new EmailService(pb);
+        await emailService.sendEmail(args.to, args.subject, args.body);
+        return { success: true };
+    });
 }

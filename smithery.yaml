@@ -27,6 +27,37 @@ startCommand:
         type: string
         title: "Admin Password"
         description: "Admin password for elevated operations"
+        
+      # === OPTIONAL: STRIPE INTEGRATION ===
+      stripeSecretKey:
+        type: string
+        title: "Stripe Secret Key"
+        description: "Stripe secret key for payment processing (enables 40+ Stripe tools)"
+        
+      # === OPTIONAL: EMAIL SERVICES ===
+      sendgridApiKey:
+        type: string
+        title: "SendGrid API Key"
+        description: "SendGrid API key for advanced email features (enables enhanced email tools)"
+      smtpHost:
+        type: string
+        title: "SMTP Host"
+        description: "SMTP host for email sending (alternative to SendGrid)"
+      smtpPort:
+        type: number
+        title: "SMTP Port"
+        description: "SMTP port for email sending (default: 587)"
+        default: 587
+      smtpUser:
+        type: string
+        title: "SMTP Username"
+        description: "SMTP username for email sending"
+      smtpPass:
+        type: string
+        title: "SMTP Password"
+        description: "SMTP password for email sending"
+        
+      # === DEBUG SETTINGS ===
       debug:
         type: boolean
         default: false
@@ -37,4 +68,6 @@ startCommand:
     pocketbaseUrl: "https://your-pb-instance.com"
     adminEmail: "admin@example.com"
     adminPassword: "your-admin-password"
+    stripeSecretKey: "sk_test_..."
+    sendgridApiKey: "SG...."
     debug: false

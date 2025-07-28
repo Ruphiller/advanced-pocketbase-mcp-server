@@ -9,8 +9,6 @@
  * - Follows the exact patterns from Context7 documentation
  */
 import { Agent } from "agents";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 interface Env {
     POCKETBASE_URL?: string;
     POCKETBASE_ADMIN_EMAIL?: string;
@@ -29,27 +27,27 @@ interface State {
     lastActivityTime: number;
 }
 /** Collection name schema */
-export declare const CollectionNameSchema: z.ZodString;
+export declare const CollectionNameSchema: any;
 /** Record ID schema */
-export declare const RecordIdSchema: z.ZodString;
+export declare const RecordIdSchema: any;
 /** Record data schema */
-export declare const RecordDataSchema: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+export declare const RecordDataSchema: any;
 /** Query filter schema */
-export declare const QueryFilterSchema: z.ZodOptional<z.ZodString>;
+export declare const QueryFilterSchema: any;
 /** Sort criteria schema */
-export declare const SortCriteriaSchema: z.ZodOptional<z.ZodString>;
+export declare const SortCriteriaSchema: any;
 /** Page number schema */
-export declare const PageNumberSchema: z.ZodOptional<z.ZodNumber>;
+export declare const PageNumberSchema: any;
 /** Records per page schema */
-export declare const PerPageSchema: z.ZodOptional<z.ZodNumber>;
+export declare const PerPageSchema: any;
 /** Email address schema */
-export declare const EmailAddressSchema: z.ZodString;
+export declare const EmailAddressSchema: any;
 /** Email template schema */
-export declare const EmailTemplateSchema: z.ZodString;
+export declare const EmailTemplateSchema: any;
 /** Stripe amount schema */
-export declare const StripeAmountSchema: z.ZodNumber;
+export declare const StripeAmountSchema: any;
 /** Currency code schema */
-export declare const CurrencyCodeSchema: z.ZodString;
+export declare const CurrencyCodeSchema: any;
 /**
  * PocketBase MCP Agent following Cloudflare best practices
  *
@@ -60,7 +58,7 @@ export declare const CurrencyCodeSchema: z.ZodString;
  * - Efficient state management with Agent class
  */
 export declare class PocketBaseMCPAgentBestPractices extends Agent<Env, State> {
-    server: McpServer;
+    server: any;
     initialState: State;
     private pb?;
     private stripeService?;

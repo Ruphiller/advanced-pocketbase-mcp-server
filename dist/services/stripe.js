@@ -732,3 +732,11 @@ export class StripeService {
         }
     }
 }
+// Register tools function
+export function registerTools(server, pb) {
+    server.tool('create_stripe_customer', 'Create a Stripe customer', { type: 'object', properties: { email: { type: 'string' }, name: { type: 'string' } } }, async (args) => {
+        const stripeService = new StripeService(pb);
+        const customer = await stripeService.createCustomer({ email: args.email, name: args.name });
+        return { success: true, customer };
+    });
+}

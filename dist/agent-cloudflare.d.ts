@@ -6,7 +6,6 @@
  * and authentication support.
  */
 import { Agent } from "agents";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 interface Env {
     POCKETBASE_URL?: string;
     POCKETBASE_ADMIN_EMAIL?: string;
@@ -28,7 +27,7 @@ interface State {
  * PocketBase MCP Agent using Cloudflare's official McpAgent class
  */
 export declare class PocketBaseMCPAgent extends Agent<Env, State> {
-    server: McpServer;
+    server: any;
     initialState: State;
     private pb?;
     private stripeService?;

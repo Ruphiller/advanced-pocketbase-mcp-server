@@ -164,4 +164,6 @@ export declare class SendGridService {
         success: boolean;
         message: string;
     }>;
+    static registerTools(server: any, pb: any): void;
+    sendEmail(to: string, subject: string, body: string): Promise<void>;
 }

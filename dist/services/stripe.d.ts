@@ -231,3 +231,4 @@ export declare class StripeService {
         customerId?: string;
     }): Promise<any>;
 }
+export declare function registerTools(server: any, pb: any): void;

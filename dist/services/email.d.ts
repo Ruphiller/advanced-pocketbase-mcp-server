@@ -35,6 +35,7 @@ export declare class EmailService {
         html: string;
         text?: string;
     }): Promise<EmailLog>;
+    sendEmail(to: string, subject: string, body: string): Promise<void>;
     testConnection(): Promise<{
         success: boolean;
         message: string;
@@ -72,3 +73,4 @@ export declare class EmailService {
     hasEnhancedFeatures(): boolean;
     createDefaultTemplates(): Promise<any>;
 }
+export declare function registerTools(server: any, pb: any): void;

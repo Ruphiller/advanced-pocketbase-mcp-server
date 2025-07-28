@@ -503,4 +503,22 @@ export class SendGridService {
             };
         }
     }
+    // Register SendGrid-related tools dynamically
+    static registerTools(server, pb) {
+        server.tool('sendgrid_email', 'Send an email via SendGrid', { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } } }, async (args) => {
+            const sendGridService = new SendGridService(pb);
+            await sendGridService.sendEmail(args.to, args.subject, args.body);
+            return { success: true };
+        });
+    }
+    async sendEmail(to, subject, body) {
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
+        const msg = {
+            to,
+            from: process.env.EMAIL_FROM || '',
+            subject,
+            text: body,
+        };
+        await sgMail.send(msg);
+    }
 }
