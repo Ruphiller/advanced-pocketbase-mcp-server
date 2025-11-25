@@ -1,4 +1,4 @@
-name = "pocketbase-mcp"
+name = "pocketbase-mcp-server"
 main = "dist/worker-durable.js"
 compatibility_date = "2024-11-06"
 compatibility_flags = ["nodejs_compat"]
