@@ -67,7 +67,7 @@ function handleRoot() {
             'durable-objects',
             'hibernation'
         ],
-        documentation: 'https://github.com/your-repo/advanced-pocketbase-mcp-server'
+        documentation: 'https://github.com/Ruphiller/advanced-pocketbase-mcp-server'
     };
     return new Response(JSON.stringify(info, null, 2), {
         headers: {
